@@ -95,8 +95,9 @@ would change strings and distort line art. Use `--kitty` or `--output FILE` with
   proportional BGI stroke fonts. RIPscrip is rendered to a 640x350 canvas and
   requires Kitty or PNG output.
 
-SAUCE metadata is used for content length, canvas dimensions, and iCE color
-mode when present. A DOS EOF marker terminates plain ANSI/text input.
+SAUCE metadata is used for content length, canvas dimensions, iCE color mode,
+and the IBM VGA50 8x8 font when present. A DOS EOF marker terminates plain
+ANSI/text input.
 
 Common raster image inputs such as PNG, GIF, JPEG, WebP, TIFF, ICO, BMP, and
 QOI are rejected by content with an explanatory error instead of being parsed

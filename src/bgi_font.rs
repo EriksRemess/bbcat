@@ -2,9 +2,8 @@ use std::sync::OnceLock;
 
 use crate::font;
 
-// Converted from the BSD-2-Clause libansilove PC 80x50 font and the Zlib
-// bgi-stroked-fonts geometry. See THIRD_PARTY_LICENSES.
-const BITMAP_DATA: &str = include_str!("bgi_fonts/cp437_f08.b64");
+// Converted from Zlib-licensed bgi-stroked-fonts geometry.
+// See THIRD_PARTY_LICENSES.
 const STROKE_DATA: &str = include_str!("bgi_fonts/strokes.b64");
 
 pub(crate) const SCALE_UP: [i32; 11] = [1, 6, 2, 3, 1, 4, 5, 2, 5, 3, 4];
@@ -41,12 +40,7 @@ impl StrokeFont {
 }
 
 pub(crate) fn bitmap() -> &'static [u8] {
-    static BITMAP: OnceLock<Vec<u8>> = OnceLock::new();
-    BITMAP.get_or_init(|| {
-        let bytes = font::decode(BITMAP_DATA.trim());
-        assert_eq!(bytes.len(), 256 * 8, "embedded BGI bitmap font size");
-        bytes
-    })
+    font::glyphs_8x8()
 }
 
 pub(crate) fn stroke_font(font_index: u8) -> Option<&'static StrokeFont> {

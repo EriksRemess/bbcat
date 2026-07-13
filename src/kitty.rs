@@ -66,7 +66,7 @@ fn write_screen_inner<W: Write>(
             png::encode_screen_scaled(screen, 0, screen.height, scale).map_err(io::Error::other)?;
         let columns = scaled(screen.width, scale)?;
         let rows = scaled(screen.height, scale)?;
-        write_image(output, &image, columns, rows)?;
+        write_image(output, &image, columns)?;
         for _ in 0..rows {
             output.write_all(b"\r\n")?;
         }
@@ -78,8 +78,15 @@ fn write_screen_inner<W: Write>(
         let image =
             png::encode_screen_scaled(screen, first_row, rows, scale).map_err(io::Error::other)?;
         let columns = scaled(screen.width, scale)?;
-        let display_rows = scaled(rows, scale)?;
-        write_image(output, &image, columns, display_rows)?;
+        let display_rows = rows
+            .checked_mul(screen.glyph_height)
+            .and_then(|height| height.checked_mul(scale))
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "output dimensions overflow")
+            })?
+            .div_ceil(16)
+            .max(1);
+        write_image(output, &image, columns)?;
         for _ in 0..display_rows {
             output.write_all(b"\r\n")?;
         }
@@ -99,20 +106,12 @@ fn scaled(value: usize, scale: usize) -> io::Result<usize> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "output dimensions overflow"))
 }
 
-fn write_image<W: Write>(
-    output: &mut W,
-    image: &[u8],
-    columns: usize,
-    rows: usize,
-) -> io::Result<()> {
+fn write_image<W: Write>(output: &mut W, image: &[u8], columns: usize) -> io::Result<()> {
     let chunks = image.len().div_ceil(INPUT_CHUNK);
     for (index, bytes) in image.chunks(INPUT_CHUNK).enumerate() {
         let more = u8::from(index + 1 < chunks);
         if index == 0 {
-            write!(
-                output,
-                "\x1b_Ga=T,f=100,c={columns},r={rows},C=1,q=2,m={more};"
-            )?;
+            write!(output, "\x1b_Ga=T,f=100,c={columns},C=1,q=2,m={more};")?;
         } else {
             write!(output, "\x1b_Gq=2,m={more};")?;
         }
@@ -175,7 +174,7 @@ mod tests {
         };
         let mut output = Vec::new();
         write_screen(&mut output, &screen, 24).unwrap();
-        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,r=1,C=1,q=2,m=0;"));
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,C=1,q=2,m=0;"));
         assert!(output.ends_with(b"\x1b\\\r\n"));
     }
 
@@ -216,7 +215,32 @@ mod tests {
         };
         let mut output = Vec::new();
         write_screen_scaled(&mut output, &screen, 24, 2).unwrap();
-        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=2,r=2,C=1,q=2,m=0;"));
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=2,C=1,q=2,m=0;"));
         assert!(output.ends_with(b"\x1b\\\r\n\r\n"));
+    }
+
+    #[test]
+    fn eight_pixel_font_preserves_its_graphical_aspect() {
+        let screen = Screen {
+            width: 1,
+            height: 19,
+            cells: vec![Cell::default(); 19],
+            glyph_height: 8,
+            font: Some(crate::font::glyphs_8x8().to_vec()),
+            palette: None,
+            utf8_supported: true,
+            raster: None,
+        };
+        let mut output = Vec::new();
+        write_screen(&mut output, &screen, 24).unwrap();
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,C=1,q=2,m=0;"));
+        assert!(!output.windows(3).any(|window| window == b",r="));
+        assert_eq!(
+            output
+                .windows(2)
+                .filter(|window| *window == b"\r\n")
+                .count(),
+            10
+        );
     }
 }

@@ -98,7 +98,14 @@ fn render_inner(
         .as_ref()
         .and_then(|s| (s.height > 0).then_some(s.height));
     let ice_colors = sauce.as_ref().is_some_and(|s| s.ice_colors);
-    let screen = ansi::parse(content, width, declared_height, ice_colors)?;
+    let mut screen = ansi::parse(content, width, declared_height, ice_colors)?;
+    if sauce
+        .as_ref()
+        .is_some_and(|sauce| sauce.font_name.eq_ignore_ascii_case("IBM VGA50"))
+    {
+        screen.glyph_height = 8;
+        screen.font = Some(font::glyphs_8x8().to_vec());
+    }
     Ok(Document { screen, sauce })
 }
 
@@ -256,5 +263,23 @@ mod tests {
         let document = render(&data, None).unwrap();
         assert_eq!((document.screen.width, document.screen.height), (80, 1));
         assert!(document.sauce.is_some());
+    }
+
+    #[test]
+    fn sauce_vga50_selects_the_8x8_font() {
+        let content = b"A";
+        let mut data = content.to_vec();
+        data.push(0x1a);
+        let mut record = [0_u8; 128];
+        record[..7].copy_from_slice(b"SAUCE00");
+        record[90..94].copy_from_slice(&(content.len() as u32).to_le_bytes());
+        record[96..98].copy_from_slice(&80_u16.to_le_bytes());
+        record[98..100].copy_from_slice(&1_u16.to_le_bytes());
+        record[106..115].copy_from_slice(b"IBM VGA50");
+        data.extend(record);
+
+        let document = render(&data, None).unwrap();
+        assert_eq!(document.screen.glyph_height, 8);
+        assert_eq!(document.screen.font.as_deref(), Some(font::glyphs_8x8()));
     }
 }

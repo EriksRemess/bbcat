@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
 
 const ENCODED: &str = include_str!("font_data.b64");
+const ENCODED_8X8: &str = include_str!("bgi_fonts/cp437_f08.b64");
 
 pub fn glyphs() -> &'static [u8] {
     static GLYPHS: OnceLock<Vec<u8>> = OnceLock::new();
@@ -10,6 +11,19 @@ pub fn glyphs() -> &'static [u8] {
             bytes.len(),
             256 * 16,
             "embedded VGA font has the wrong size"
+        );
+        bytes
+    })
+}
+
+pub(crate) fn glyphs_8x8() -> &'static [u8] {
+    static GLYPHS: OnceLock<Vec<u8>> = OnceLock::new();
+    GLYPHS.get_or_init(|| {
+        let bytes = decode(ENCODED_8X8.trim());
+        assert_eq!(
+            bytes.len(),
+            256 * 8,
+            "embedded VGA 8x8 font has the wrong size"
         );
         bytes
     })
@@ -61,6 +75,12 @@ mod tests {
         assert_eq!(glyphs().len(), 4096);
         assert!(
             glyphs()[0xdb * 16..0xdc * 16]
+                .iter()
+                .all(|&row| row == 0xff)
+        );
+        assert_eq!(glyphs_8x8().len(), 2048);
+        assert!(
+            glyphs_8x8()[0xdb * 8..0xdc * 8]
                 .iter()
                 .all(|&row| row == 0xff)
         );
