@@ -48,8 +48,8 @@ fn run() -> Result<(), String> {
     let mut stdout = io::stdout().lock();
     for file in &options.files {
         let data = read(file)?;
-        let document =
-            bbcat::render(&data, options.width).map_err(|error| format!("{file}: {error}"))?;
+        let document = bbcat::render_named(&data, options.width, file)
+            .map_err(|error| format!("{file}: {error}"))?;
         if let Some(path) = &options.output {
             let png = bbcat::encode_screen(&document.screen, 0, document.screen.height)?;
             fs::write(path, png).map_err(|error| format!("{}: {error}", path.display()))?;
@@ -145,7 +145,7 @@ Render CP437 ANSI, DIZ, and XBin art as UTF-8 text, Kitty graphics, or PNG.
 Usage: bbcat [OPTIONS] [FILE]...
 
 Arguments:
-  [FILE]...                 .ANS/.DIZ/.XB files; use - or omit for stdin
+  [FILE]...                 .ANS/.DIZ/.ADF/.XB files; use - or omit for stdin
 
 Options:
   -w, --width COLS          Override ANSI/DIZ width; must match an XBin header

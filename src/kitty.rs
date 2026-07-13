@@ -92,6 +92,7 @@ mod tests {
             glyph_height: 16,
             font: None,
             palette: None,
+            utf8_supported: true,
         };
         let mut output = Vec::new();
         write_screen(&mut output, &screen, 24).unwrap();

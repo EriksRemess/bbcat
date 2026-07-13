@@ -42,6 +42,12 @@ pub fn write_screen<W: Write>(output: &mut W, screen: &Screen) -> io::Result<()>
             "UTF-8 output cannot represent XBin 512-character font glyphs",
         ));
     }
+    if !screen.utf8_supported {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "UTF-8 output cannot represent a custom embedded bitmap font; use --kitty or --output FILE",
+        ));
+    }
     let palette = screen.palette.unwrap_or(VGA_PALETTE);
 
     for row in screen.cells.chunks_exact(screen.width) {
@@ -85,6 +91,7 @@ mod tests {
             glyph_height: 16,
             font: None,
             palette: None,
+            utf8_supported: true,
         }
     }
 
@@ -126,6 +133,17 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("512-character"));
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn rejects_a_custom_embedded_bitmap_font() {
+        let mut screen = screen(vec![Cell::default()]);
+        screen.font = Some(vec![0; 256 * 16]);
+        screen.utf8_supported = false;
+        let mut output = Vec::new();
+        let error = write_screen(&mut output, &screen).unwrap_err();
+        assert!(error.to_string().contains("--kitty or --output"));
         assert!(output.is_empty());
     }
 }

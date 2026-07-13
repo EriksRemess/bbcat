@@ -166,6 +166,7 @@ mod tests {
             glyph_height: 16,
             font: None,
             palette: None,
+            utf8_supported: true,
         };
         let png = encode_screen(&screen, 0, 1).unwrap();
         assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");

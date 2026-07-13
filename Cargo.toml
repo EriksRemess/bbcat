@@ -1,8 +1,8 @@
 [package]
 name = "bbcat"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
-description = "Render ANSI, DIZ, and XBin art as UTF-8 text, Kitty graphics, or PNG images"
+description = "Render ANSI, DIZ, ADF, and XBin art as UTF-8 text, Kitty graphics, or PNG images"
 license = "MIT AND BSD-2-Clause"
 readme = "README.md"
 documentation = "https://docs.rs/bbcat"

@@ -23,6 +23,7 @@ pub struct Screen {
     pub(crate) glyph_height: usize,
     pub(crate) font: Option<Vec<u8>>,
     pub(crate) palette: Option<[[u8; 3]; 16]>,
+    pub(crate) utf8_supported: bool,
 }
 
 pub(crate) const MAX_CELLS: usize = 10_000_000;
@@ -125,6 +126,7 @@ pub fn parse(
         glyph_height: 16,
         font: None,
         palette: None,
+        utf8_supported: true,
     })
 }
 

@@ -1,3 +1,6 @@
+use std::path::Path;
+
+mod adf;
 mod ansi;
 mod font;
 mod kitty;
@@ -19,16 +22,41 @@ pub struct Document {
 }
 
 pub fn render(data: &[u8], width_override: Option<usize>) -> Result<Document, String> {
+    render_inner(data, width_override, false)
+}
+
+pub fn render_named(
+    data: &[u8],
+    width_override: Option<usize>,
+    name: &str,
+) -> Result<Document, String> {
+    let adf_hint = Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("adf"));
+    render_inner(data, width_override, adf_hint)
+}
+
+fn render_inner(
+    data: &[u8],
+    width_override: Option<usize>,
+    adf_hint: bool,
+) -> Result<Document, String> {
     let is_xbin = data.starts_with(b"XBIN\x1a");
     if !is_xbin && let Some(format) = unsupported_format(data) {
         return Err(format!(
-            "{format} input is not supported; expected CP437 ANSI, DIZ, or XBin art"
+            "{format} input is not supported; expected CP437 ANSI, DIZ, ADF, or XBin art"
         ));
     }
 
     let sauce = Sauce::parse(data);
+    let binary_content = sauce.as_ref().map_or(data, |sauce| sauce.content(data));
+    if !is_xbin && (adf_hint || adf::is_adf(binary_content)) {
+        let screen = adf::parse(binary_content, width_override)?;
+        return Ok(Document { screen, sauce });
+    }
     let content = if is_xbin {
-        sauce.as_ref().map_or(data, |s| s.content(data))
+        binary_content
     } else {
         sauce
             .as_ref()
@@ -157,7 +185,7 @@ mod tests {
         let error = render(b"\x89PNG\r\n\x1a\nrest", None).unwrap_err();
         assert_eq!(
             error,
-            "PNG image input is not supported; expected CP437 ANSI, DIZ, or XBin art"
+            "PNG image input is not supported; expected CP437 ANSI, DIZ, ADF, or XBin art"
         );
     }
 
@@ -177,5 +205,33 @@ mod tests {
         ] {
             assert!(render(data, None).is_err());
         }
+    }
+
+    #[test]
+    fn named_adf_inputs_are_validated_as_adf() {
+        let error = render_named(b"not an ADF", None, "broken.ADF").unwrap_err();
+        assert!(error.contains("truncated ADF header"));
+    }
+
+    #[test]
+    fn signed_binary_formats_take_precedence_over_an_adf_extension() {
+        let error = render_named(b"XBIN\x1a", None, "misnamed.adf").unwrap_err();
+        assert!(error.contains("truncated XBin header"));
+    }
+
+    #[test]
+    fn adf_detection_honors_a_sauce_content_length() {
+        let content_len = 1 + 192 + 4096 + 160;
+        let mut data = vec![0_u8; content_len];
+        data[0] = 1;
+        data.push(0x1a);
+        let mut record = [0_u8; 128];
+        record[..7].copy_from_slice(b"SAUCE00");
+        record[90..94].copy_from_slice(&(content_len as u32).to_le_bytes());
+        data.extend(record);
+
+        let document = render(&data, None).unwrap();
+        assert_eq!((document.screen.width, document.screen.height), (80, 1));
+        assert!(document.sauce.is_some());
     }
 }
