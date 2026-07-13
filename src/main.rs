@@ -1,7 +1,7 @@
 use std::{
     env, fs,
     io::{self, IsTerminal, Read},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::ExitCode,
     time::Duration,
 };
@@ -69,7 +69,7 @@ fn run() -> Result<(), String> {
                 document.screen.height,
                 options.scale,
             )?;
-            fs::write(path, png).map_err(|error| format!("{}: {error}", path.display()))?;
+            write_png(&mut stdout, path, &png)?;
         } else if options.kitty {
             if let Some(delay) = options.delay {
                 bbcat::write_screen_slow_scaled(
@@ -108,6 +108,17 @@ fn read(path: &str) -> Result<Vec<u8>, String> {
         Ok(data)
     } else {
         fs::read(path).map_err(|error| format!("{path}: {error}"))
+    }
+}
+
+fn write_png<W: io::Write>(output: &mut W, path: &Path, png: &[u8]) -> Result<(), String> {
+    if path == Path::new("-") {
+        output
+            .write_all(png)
+            .and_then(|()| output.flush())
+            .map_err(|error| format!("stdout: {error}"))
+    } else {
+        fs::write(path, png).map_err(|error| format!("{}: {error}", path.display()))
     }
 }
 
@@ -216,7 +227,7 @@ Options:
       --slow                Reveal character art one row at a time (25 ms/row)
       --delay MS            Set the slow-mode row delay (1..=10000)
       --2x                  Double Kitty or PNG output dimensions
-  -o, --output FILE         Write a PNG file
+  -o, --output FILE         Write a PNG file; use - for stdout
   -h, --help                Print help
   -V, --version             Print version"#,
         env!("CARGO_PKG_VERSION")
@@ -238,5 +249,12 @@ mod tests {
         ] {
             assert!(milliseconds("--delay", value).is_err());
         }
+    }
+
+    #[test]
+    fn dash_output_writes_png_to_stdout() {
+        let mut output = Vec::new();
+        write_png(&mut output, Path::new("-"), b"PNG").unwrap();
+        assert_eq!(output, b"PNG");
     }
 }

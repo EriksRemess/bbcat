@@ -26,6 +26,7 @@ bbcat art.ans FILE_ID.DIZ
 bbcat < art.ans
 bbcat --kitty scene.xb
 bbcat --output preview.png art.adf
+bbcat --output - art.ans > preview.png
 bbcat --2x --kitty art.ans
 ```
 
@@ -35,13 +36,14 @@ bbcat --2x --kitty art.ans
 | --- | --- | --- |
 | UTF-8 | default | Converts CP437 characters to Unicode and emits 24-bit ANSI colors. |
 | Kitty | `--kitty` | Renders the original bitmap glyphs and palette through the Kitty graphics protocol. |
-| PNG | `-o FILE`, `--output FILE` | Writes one indexed-color PNG instead of terminal output. |
+| PNG | `-o FILE`, `--output FILE` | Writes one indexed-color PNG; use `-` to write it to standard output. |
 
 Kitty mode requires terminal stdout and a terminal that answers bbcat's Kitty
 graphics protocol probe. Kitty and Ghostty are supported on Linux. Long images
 are emitted in strips so they remain available in terminal scrollback.
 
-PNG mode requires exactly one input file. It cannot be combined with `--kitty`,
+PNG mode requires exactly one input file. Use `--output -` to pipe or redirect
+the PNG from standard output. PNG mode cannot be combined with `--kitty`,
 `--slow`, or `--delay`.
 
 UTF-8 output is intended for character art using the standard CP437 glyph set.
@@ -114,7 +116,7 @@ also produce a non-zero exit status and a filename-scoped error.
 | `--slow` | Reveal one character row at a time using a 25 ms delay. |
 | `--delay MS` | Enable slow mode with a delay from 1 through 10,000 ms per row. |
 | `--2x` | Double Kitty or PNG output width and height. Requires `--kitty` or `--output FILE`. |
-| `-o FILE`, `--output FILE` | Write an indexed-color PNG. Requires exactly one input. |
+| `-o FILE`, `--output FILE` | Write an indexed-color PNG. Use `-` for standard output; requires exactly one input. |
 | `-h`, `--help` | Print command help. |
 | `-V`, `--version` | Print the bbcat version. |
 
