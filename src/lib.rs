@@ -2,9 +2,11 @@ use std::path::Path;
 
 mod adf;
 mod ansi;
+mod bgi_font;
 mod font;
 mod kitty;
 mod png;
+mod rip;
 mod sauce;
 mod text;
 mod xbin;
@@ -22,7 +24,7 @@ pub struct Document {
 }
 
 pub fn render(data: &[u8], width_override: Option<usize>) -> Result<Document, String> {
-    render_inner(data, width_override, false)
+    render_inner(data, width_override, false, false)
 }
 
 pub fn render_named(
@@ -34,23 +36,32 @@ pub fn render_named(
         .extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case("adf"));
-    render_inner(data, width_override, adf_hint)
+    let rip_hint = Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("rip"));
+    render_inner(data, width_override, adf_hint, rip_hint)
 }
 
 fn render_inner(
     data: &[u8],
     width_override: Option<usize>,
     adf_hint: bool,
+    rip_hint: bool,
 ) -> Result<Document, String> {
     let is_xbin = data.starts_with(b"XBIN\x1a");
     if !is_xbin && let Some(format) = unsupported_format(data) {
         return Err(format!(
-            "{format} input is not supported; expected CP437 ANSI, DIZ, ADF, or XBin art"
+            "{format} input is not supported; expected ANSI, DIZ, ADF, RIPscrip, or XBin art"
         ));
     }
 
     let sauce = Sauce::parse(data);
     let binary_content = sauce.as_ref().map_or(data, |sauce| sauce.content(data));
+    if rip_hint || rip::is_rip(binary_content) {
+        let screen = rip::parse(binary_content, width_override)?;
+        return Ok(Document { screen, sauce });
+    }
     if !is_xbin && (adf_hint || adf::is_adf(binary_content)) {
         let screen = adf::parse(binary_content, width_override)?;
         return Ok(Document { screen, sauce });
@@ -185,7 +196,7 @@ mod tests {
         let error = render(b"\x89PNG\r\n\x1a\nrest", None).unwrap_err();
         assert_eq!(
             error,
-            "PNG image input is not supported; expected CP437 ANSI, DIZ, ADF, or XBin art"
+            "PNG image input is not supported; expected ANSI, DIZ, ADF, RIPscrip, or XBin art"
         );
     }
 
@@ -217,6 +228,18 @@ mod tests {
     fn signed_binary_formats_take_precedence_over_an_adf_extension() {
         let error = render_named(b"XBIN\x1a", None, "misnamed.adf").unwrap_err();
         assert!(error.contains("truncated XBin header"));
+    }
+
+    #[test]
+    fn named_rip_inputs_are_validated_as_ripscrip() {
+        let error = render_named(b"not RIPscrip", None, "broken.rip").unwrap_err();
+        assert!(error.contains("RIPscrip header"));
+    }
+
+    #[test]
+    fn image_signatures_take_precedence_over_a_rip_extension() {
+        let error = render_named(b"GIF89a...", None, "misnamed.rip").unwrap_err();
+        assert!(error.contains("GIF image input is not supported"));
     }
 
     #[test]

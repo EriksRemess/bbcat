@@ -9,6 +9,14 @@ pub fn write_screen<W: Write>(
     screen: &Screen,
     chunk_lines: usize,
 ) -> io::Result<()> {
+    if screen.raster.is_some() {
+        let image = png::encode_screen(screen, 0, screen.height).map_err(io::Error::other)?;
+        write_image(output, &image, screen.width, screen.height)?;
+        for _ in 0..screen.height {
+            output.write_all(b"\r\n")?;
+        }
+        return output.flush();
+    }
     let chunk_lines = chunk_lines.max(1);
     for first_row in (0..screen.height).step_by(chunk_lines) {
         let rows = chunk_lines.min(screen.height - first_row);
@@ -93,6 +101,7 @@ mod tests {
             font: None,
             palette: None,
             utf8_supported: true,
+            raster: None,
         };
         let mut output = Vec::new();
         write_screen(&mut output, &screen, 24).unwrap();

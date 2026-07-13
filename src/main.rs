@@ -140,15 +140,15 @@ fn number(option: &str, value: Option<String>) -> Result<usize, String> {
 fn print_help() {
     println!(
         r#"bbcat {}
-Render CP437 ANSI, DIZ, and XBin art as UTF-8 text, Kitty graphics, or PNG.
+Render character art as UTF-8, or supported BBS art as Kitty graphics or PNG.
 
 Usage: bbcat [OPTIONS] [FILE]...
 
 Arguments:
-  [FILE]...                 .ANS/.DIZ/.ADF/.XB files; use - or omit for stdin
+  [FILE]...                 .ANS/.DIZ/.ADF/.RIP/.XB files; use - or omit for stdin
 
 Options:
-  -w, --width COLS          Override ANSI/DIZ width; must match an XBin header
+  -w, --width COLS          Override text width; must match fixed binary/vector widths
       --chunk-lines ROWS    Kitty image height (default: LINES - 1, or 24)
       --kitty               Use Kitty graphics instead of UTF-8 text
   -o, --output FILE         Write a PNG file

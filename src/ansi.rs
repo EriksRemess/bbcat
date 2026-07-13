@@ -24,6 +24,14 @@ pub struct Screen {
     pub(crate) font: Option<Vec<u8>>,
     pub(crate) palette: Option<[[u8; 3]; 16]>,
     pub(crate) utf8_supported: bool,
+    pub(crate) raster: Option<Raster>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Raster {
+    pub width: usize,
+    pub height: usize,
+    pub pixels: Vec<u8>,
 }
 
 pub(crate) const MAX_CELLS: usize = 10_000_000;
@@ -127,6 +135,7 @@ pub fn parse(
         font: None,
         palette: None,
         utf8_supported: true,
+        raster: None,
     })
 }
 

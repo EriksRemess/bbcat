@@ -36,6 +36,12 @@ const CP437: [char; 256] = [
 ];
 
 pub fn write_screen<W: Write>(output: &mut W, screen: &Screen) -> io::Result<()> {
+    if screen.raster.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "UTF-8 output is not useful for RIPscrip graphics; use --kitty or --output FILE",
+        ));
+    }
     if screen.cells.iter().any(|cell| cell.character > 255) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -92,6 +98,7 @@ mod tests {
             font: None,
             palette: None,
             utf8_supported: true,
+            raster: None,
         }
     }
 
@@ -145,5 +152,20 @@ mod tests {
         let error = write_screen(&mut output, &screen).unwrap_err();
         assert!(error.to_string().contains("--kitty or --output"));
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn rejects_raster_art_with_a_graphical_output_hint() {
+        let mut screen = screen(Vec::new());
+        screen.width = 80;
+        screen.height = 22;
+        screen.raster = Some(crate::ansi::Raster {
+            width: 640,
+            height: 350,
+            pixels: vec![0; 640 * 350],
+        });
+        let error = write_screen(&mut Vec::new(), &screen).unwrap_err();
+        assert!(error.to_string().contains("RIPscrip"));
+        assert!(error.to_string().contains("--kitty or --output"));
     }
 }

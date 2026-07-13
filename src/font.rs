@@ -15,9 +15,13 @@ pub fn glyphs() -> &'static [u8] {
     })
 }
 
-fn decode(input: &str) -> Vec<u8> {
-    let mut output = Vec::with_capacity(input.len() / 4 * 3);
-    for group in input.as_bytes().chunks(4) {
+pub(crate) fn decode(input: &str) -> Vec<u8> {
+    let encoded: Vec<u8> = input
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .collect();
+    let mut output = Vec::with_capacity(encoded.len() / 4 * 3);
+    for group in encoded.chunks(4) {
         if group.len() != 4 {
             break;
         }

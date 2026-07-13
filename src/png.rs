@@ -29,6 +29,17 @@ pub fn encode_screen(screen: &Screen, first_row: usize, rows: usize) -> Result<V
     {
         return Err("PNG row range is outside the rendered screen".to_owned());
     }
+    if let Some(raster) = &screen.raster {
+        if first_row != 0 || rows != screen.height {
+            return Err("PNG row ranges are not supported for raster art".to_owned());
+        }
+        return encode_indexed(
+            raster.width,
+            raster.height,
+            &raster.pixels,
+            screen.palette.unwrap_or(VGA_PALETTE),
+        );
+    }
     let width = screen.width.checked_mul(8).ok_or("PNG width overflow")?;
     let height = rows
         .checked_mul(screen.glyph_height)
@@ -103,6 +114,48 @@ pub fn encode_screen(screen: &Screen, first_row: usize, rows: usize) -> Result<V
     Ok(png)
 }
 
+fn encode_indexed(
+    width: usize,
+    height: usize,
+    colors: &[u8],
+    palette: [[u8; 3]; 16],
+) -> Result<Vec<u8>, String> {
+    let pixel_count = width
+        .checked_mul(height)
+        .ok_or("PNG pixel count overflow")?;
+    if colors.len() != pixel_count {
+        return Err("raster pixel buffer does not match its dimensions".to_owned());
+    }
+    if pixel_count > MAX_PNG_PIXELS {
+        return Err(format!(
+            "PNG output exceeds the {MAX_PNG_PIXELS} pixel safety limit"
+        ));
+    }
+
+    let mut pixels = Vec::with_capacity((1 + width.div_ceil(2)) * height);
+    for row in colors.chunks_exact(width) {
+        pixels.push(0);
+        for pair in row.chunks(2) {
+            pixels.push((pair[0] << 4) | pair.get(1).copied().unwrap_or(0));
+        }
+    }
+
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut ihdr = Vec::with_capacity(13);
+    ihdr.extend_from_slice(&(width as u32).to_be_bytes());
+    ihdr.extend_from_slice(&(height as u32).to_be_bytes());
+    ihdr.extend_from_slice(&[4, 3, 0, 0, 0]);
+    chunk(&mut png, b"IHDR", &ihdr);
+    chunk(
+        &mut png,
+        b"PLTE",
+        &palette.into_iter().flatten().collect::<Vec<_>>(),
+    );
+    chunk(&mut png, b"IDAT", &zlib_store(&pixels));
+    chunk(&mut png, b"IEND", &[]);
+    Ok(png)
+}
+
 fn zlib_store(data: &[u8]) -> Vec<u8> {
     let mut output = Vec::with_capacity(data.len() + data.len() / 65_535 * 5 + 11);
     output.extend_from_slice(&[0x78, 0x01]);
@@ -167,6 +220,7 @@ mod tests {
             font: None,
             palette: None,
             utf8_supported: true,
+            raster: None,
         };
         let png = encode_screen(&screen, 0, 1).unwrap();
         assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
