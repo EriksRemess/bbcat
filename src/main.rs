@@ -11,6 +11,7 @@ struct Options {
     width: Option<usize>,
     chunk_lines: usize,
     output: Option<PathBuf>,
+    kitty: bool,
     files: Vec<String>,
 }
 
@@ -31,11 +32,17 @@ fn run() -> Result<(), String> {
     if options.output.is_some() && options.files.len() != 1 {
         return Err("--output requires exactly one input file".to_owned());
     }
-    if options.output.is_none() && !io::stdout().is_terminal() {
-        return Err("stdout is not a terminal; use --output FILE to write a PNG".to_owned());
+    if options.output.is_some() && options.kitty {
+        return Err("--output and --kitty cannot be used together".to_owned());
     }
-    if options.output.is_none() {
-        terminal::require_kitty_support()?;
+    if options.kitty && !io::stdout().is_terminal() {
+        return Err("--kitty requires terminal stdout".to_owned());
+    }
+    if options.kitty && !terminal::supports_kitty()? {
+        return Err(
+            "terminal does not support the Kitty graphics protocol; omit --kitty for UTF-8 output"
+                .to_owned(),
+        );
     }
 
     let mut stdout = io::stdout().lock();
@@ -46,8 +53,11 @@ fn run() -> Result<(), String> {
         if let Some(path) = &options.output {
             let png = bbcat::encode_screen(&document.screen, 0, document.screen.height)?;
             fs::write(path, png).map_err(|error| format!("{}: {error}", path.display()))?;
-        } else {
+        } else if options.kitty {
             bbcat::write_screen(&mut stdout, &document.screen, options.chunk_lines)
+                .map_err(|error| format!("{file}: {error}"))?;
+        } else {
+            bbcat::write_text(&mut stdout, &document.screen)
                 .map_err(|error| format!("{file}: {error}"))?;
         }
     }
@@ -73,6 +83,7 @@ fn parse_args() -> Result<Option<Options>, String> {
         .and_then(|value| value.parse::<usize>().ok())
         .map_or(24, |lines| lines.saturating_sub(1).clamp(1, 64));
     let mut output = None;
+    let mut kitty = false;
     let mut files = Vec::new();
     let mut arguments = env::args().skip(1);
     while let Some(argument) = arguments.next() {
@@ -94,6 +105,7 @@ fn parse_args() -> Result<Option<Options>, String> {
                         .ok_or_else(|| format!("{argument} requires a path"))?,
                 ));
             }
+            "--kitty" => kitty = true,
             "--" => {
                 files.extend(arguments);
                 break;
@@ -113,6 +125,7 @@ fn parse_args() -> Result<Option<Options>, String> {
         width,
         chunk_lines,
         output,
+        kitty,
         files,
     }))
 }
@@ -127,7 +140,7 @@ fn number(option: &str, value: Option<String>) -> Result<usize, String> {
 fn print_help() {
     println!(
         r#"bbcat {}
-Render CP437 ANSI, DIZ, and XBin art through the Kitty graphics protocol.
+Render CP437 ANSI, DIZ, and XBin art as UTF-8 text, Kitty graphics, or PNG.
 
 Usage: bbcat [OPTIONS] [FILE]...
 
@@ -136,8 +149,9 @@ Arguments:
 
 Options:
   -w, --width COLS          Override ANSI/DIZ width; must match an XBin header
-      --chunk-lines ROWS    Image placement height (default: LINES - 1, or 24)
-  -o, --output FILE         Write a PNG instead of terminal graphics
+      --chunk-lines ROWS    Kitty image height (default: LINES - 1, or 24)
+      --kitty               Use Kitty graphics instead of UTF-8 text
+  -o, --output FILE         Write a PNG file
   -h, --help                Print help
   -V, --version             Print version"#,
         env!("CARGO_PKG_VERSION")

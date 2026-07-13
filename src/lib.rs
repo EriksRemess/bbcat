@@ -3,12 +3,14 @@ mod font;
 mod kitty;
 mod png;
 mod sauce;
+mod text;
 mod xbin;
 
 pub use ansi::{Cell, Screen};
 pub use kitty::write_screen;
 pub use png::encode_screen;
 pub use sauce::Sauce;
+pub use text::write_screen as write_text;
 
 #[derive(Debug)]
 pub struct Document {

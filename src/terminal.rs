@@ -49,7 +49,7 @@ mod linux {
         }
     }
 
-    pub fn require_kitty_support() -> Result<(), String> {
+    pub fn supports_kitty() -> Result<bool, String> {
         let mut tty = OpenOptions::new()
             .read(true)
             .write(true)
@@ -80,11 +80,7 @@ mod linux {
                 Ok(length) => {
                     response.extend_from_slice(&buffer[..length]);
                     if let Some(supported) = probe_result(&response) {
-                        return if supported {
-                            Ok(())
-                        } else {
-                            Err(unsupported_message())
-                        };
+                        return Ok(supported);
                     }
                 }
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
@@ -92,7 +88,7 @@ mod linux {
             }
         }
 
-        Err("terminal did not answer the Kitty graphics protocol probe; use --output FILE to write a PNG instead".to_owned())
+        Ok(false)
     }
 
     fn get_termios(fd: RawFd) -> io::Result<Termios> {
@@ -132,10 +128,6 @@ mod linux {
             .any(|window| window == needle)
     }
 
-    fn unsupported_message() -> String {
-        "terminal does not support the Kitty graphics protocol; use --output FILE to write a PNG instead".to_owned()
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -159,9 +151,9 @@ mod linux {
 }
 
 #[cfg(target_os = "linux")]
-pub use linux::require_kitty_support;
+pub use linux::supports_kitty;
 
 #[cfg(not(target_os = "linux"))]
-pub fn require_kitty_support() -> Result<(), String> {
-    Err("automatic Kitty graphics protocol detection is currently supported only on Linux; use --output FILE to write a PNG instead".to_owned())
+pub fn supports_kitty() -> Result<bool, String> {
+    Ok(false)
 }
