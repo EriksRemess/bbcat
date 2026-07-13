@@ -26,8 +26,8 @@ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 
-The RIPscrip parser and BGI-compatible rasterizer behavior are derived from
-PabloDraw:
+The embedded Amiga MicroKnight and Amiga Topaz 2+ font data, RIPscrip parser,
+and BGI-compatible rasterizer behavior are derived from PabloDraw:
 https://github.com/cwensley/pablodraw
 
 MIT License
@@ -51,6 +51,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+The embedded Empathy by Skaboy PC font was distributed as PC.FNT in The Loop
+artpack l0p18_03:
+https://16colo.rs/pack/l0p18_03/
+
+Font author: Skaboy (Grant Passmore)
+
+The original artpack does not contain a separate license notice for this font.
+It is retained here under its original distribution terms and is not covered
+by bbcat's MIT license.
 
 The embedded BGI stroke font geometry is converted from bgi-stroked-fonts:
 https://github.com/sunsided/bgi-stroked-fonts

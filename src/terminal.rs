@@ -16,6 +16,7 @@ mod linux {
     const ECHO: u32 = 0x0000_0008;
     const VTIME: usize = 5;
     const VMIN: usize = 6;
+    const TIOCGWINSZ: std::ffi::c_ulong = 0x5413;
 
     #[repr(C)]
     #[derive(Clone, Copy)]
@@ -30,9 +31,18 @@ mod linux {
         output_speed: u32,
     }
 
+    #[repr(C)]
+    struct Winsize {
+        rows: u16,
+        columns: u16,
+        x_pixels: u16,
+        y_pixels: u16,
+    }
+
     unsafe extern "C" {
         fn tcgetattr(fd: c_int, termios: *mut Termios) -> c_int;
         fn tcsetattr(fd: c_int, action: c_int, termios: *const Termios) -> c_int;
+        fn ioctl(fd: c_int, request: std::ffi::c_ulong, value: *mut Winsize) -> c_int;
     }
 
     struct RestoreTerminal {
@@ -89,6 +99,22 @@ mod linux {
         }
 
         Ok(false)
+    }
+
+    pub fn width() -> Option<usize> {
+        let mut size = MaybeUninit::<Winsize>::uninit();
+        if unsafe { ioctl(io::stdout().as_raw_fd(), TIOCGWINSZ, size.as_mut_ptr()) } == -1 {
+            return environment_width();
+        }
+        let columns = usize::from(unsafe { size.assume_init() }.columns);
+        (columns > 0).then_some(columns).or_else(environment_width)
+    }
+
+    fn environment_width() -> Option<usize> {
+        std::env::var("COLUMNS")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .filter(|&columns| columns > 0)
     }
 
     fn get_termios(fd: RawFd) -> io::Result<Termios> {
@@ -151,9 +177,17 @@ mod linux {
 }
 
 #[cfg(target_os = "linux")]
-pub use linux::supports_kitty;
+pub use linux::{supports_kitty, width};
 
 #[cfg(not(target_os = "linux"))]
 pub fn supports_kitty() -> Result<bool, String> {
     Ok(false)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn width() -> Option<usize> {
+    std::env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .filter(|&columns| columns > 0)
 }

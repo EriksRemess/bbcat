@@ -8,12 +8,51 @@ use crate::{Screen, png};
 
 const INPUT_CHUNK: usize = 3072;
 
+#[derive(Clone, Copy)]
+enum WidthMode {
+    Full,
+    Crop(usize),
+    Fit(usize),
+}
+
 pub fn write_screen<W: Write>(
     output: &mut W,
     screen: &Screen,
     chunk_lines: usize,
 ) -> io::Result<()> {
-    write_screen_scaled(output, screen, chunk_lines, 1)
+    write_screen_inner(output, screen, chunk_lines, None, 1, WidthMode::Full)
+}
+
+pub fn write_screen_cropped<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    chunk_lines: usize,
+    columns: usize,
+) -> io::Result<()> {
+    write_screen_inner(
+        output,
+        screen,
+        chunk_lines,
+        None,
+        1,
+        WidthMode::Crop(columns),
+    )
+}
+
+pub fn write_screen_fit<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    chunk_lines: usize,
+    columns: usize,
+) -> io::Result<()> {
+    write_screen_inner(
+        output,
+        screen,
+        chunk_lines,
+        None,
+        1,
+        WidthMode::Fit(columns),
+    )
 }
 
 pub fn write_screen_scaled<W: Write>(
@@ -22,7 +61,41 @@ pub fn write_screen_scaled<W: Write>(
     chunk_lines: usize,
     scale: usize,
 ) -> io::Result<()> {
-    write_screen_inner(output, screen, chunk_lines, None, scale)
+    write_screen_inner(output, screen, chunk_lines, None, scale, WidthMode::Full)
+}
+
+pub fn write_screen_scaled_cropped<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    chunk_lines: usize,
+    scale: usize,
+    columns: usize,
+) -> io::Result<()> {
+    write_screen_inner(
+        output,
+        screen,
+        chunk_lines,
+        None,
+        scale,
+        WidthMode::Crop(columns),
+    )
+}
+
+pub fn write_screen_scaled_fit<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    chunk_lines: usize,
+    scale: usize,
+    columns: usize,
+) -> io::Result<()> {
+    write_screen_inner(
+        output,
+        screen,
+        chunk_lines,
+        None,
+        scale,
+        WidthMode::Fit(columns),
+    )
 }
 
 pub fn write_screen_slow<W: Write>(
@@ -30,7 +103,25 @@ pub fn write_screen_slow<W: Write>(
     screen: &Screen,
     delay: Duration,
 ) -> io::Result<()> {
-    write_screen_slow_scaled(output, screen, delay, 1)
+    write_screen_inner(output, screen, 1, Some(delay), 1, WidthMode::Full)
+}
+
+pub fn write_screen_slow_cropped<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    delay: Duration,
+    columns: usize,
+) -> io::Result<()> {
+    write_screen_inner(output, screen, 1, Some(delay), 1, WidthMode::Crop(columns))
+}
+
+pub fn write_screen_slow_fit<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    delay: Duration,
+    columns: usize,
+) -> io::Result<()> {
+    write_screen_inner(output, screen, 1, Some(delay), 1, WidthMode::Fit(columns))
 }
 
 pub fn write_screen_slow_scaled<W: Write>(
@@ -39,13 +130,41 @@ pub fn write_screen_slow_scaled<W: Write>(
     delay: Duration,
     scale: usize,
 ) -> io::Result<()> {
-    if screen.raster.is_some() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "slow mode is not supported for RIPscrip graphics",
-        ));
-    }
-    write_screen_inner(output, screen, 1, Some(delay), scale)
+    write_screen_inner(output, screen, 1, Some(delay), scale, WidthMode::Full)
+}
+
+pub fn write_screen_slow_scaled_cropped<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    delay: Duration,
+    scale: usize,
+    columns: usize,
+) -> io::Result<()> {
+    write_screen_inner(
+        output,
+        screen,
+        1,
+        Some(delay),
+        scale,
+        WidthMode::Crop(columns),
+    )
+}
+
+pub fn write_screen_slow_scaled_fit<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    delay: Duration,
+    scale: usize,
+    columns: usize,
+) -> io::Result<()> {
+    write_screen_inner(
+        output,
+        screen,
+        1,
+        Some(delay),
+        scale,
+        WidthMode::Fit(columns),
+    )
 }
 
 fn write_screen_inner<W: Write>(
@@ -54,6 +173,7 @@ fn write_screen_inner<W: Write>(
     chunk_lines: usize,
     delay: Option<Duration>,
     scale: usize,
+    width_mode: WidthMode,
 ) -> io::Result<()> {
     if scale == 0 {
         return Err(io::Error::new(
@@ -61,22 +181,59 @@ fn write_screen_inner<W: Write>(
             "output scale must be non-zero",
         ));
     }
+    if matches!(width_mode, WidthMode::Crop(0) | WidthMode::Fit(0)) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Kitty placement width must be non-zero",
+        ));
+    }
+    if delay.is_some() && screen.raster.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "slow mode is not supported for RIPscrip graphics",
+        ));
+    }
+    if let WidthMode::Fit(columns) = width_mode {
+        let rows = if delay.is_some() { 1 } else { screen.height };
+        validate_fit_height(screen, scale, columns, rows)?;
+    }
     if screen.raster.is_some() {
-        let image =
-            png::encode_screen_scaled(screen, 0, screen.height, scale).map_err(io::Error::other)?;
-        let columns = scaled(screen.width, scale)?;
-        write_image(output, &image, columns)?;
+        let image = encode_image(screen, 0, screen.height, scale, width_mode)?;
+        let columns = output_columns(screen.width, scale, width_mode)?;
+        write_image(output, &image, columns, None)?;
         output.write_all(b"\r")?;
         return output.flush();
     }
-    let chunk_lines = chunk_lines.max(1);
+    let chunk_lines = if matches!(width_mode, WidthMode::Fit(_)) {
+        screen.height
+    } else {
+        chunk_lines.max(1)
+    };
     for first_row in (0..screen.height).step_by(chunk_lines) {
         let rows = chunk_lines.min(screen.height - first_row);
-        let image =
-            png::encode_screen_scaled(screen, first_row, rows, scale).map_err(io::Error::other)?;
-        let columns = scaled(screen.width, scale)?;
-        write_image(output, &image, columns)?;
-        output.write_all(b"\r")?;
+        let image = encode_image(screen, first_row, rows, scale, width_mode)?;
+        let columns = output_columns(screen.width, scale, width_mode)?;
+        let placement_rows = if delay.is_some() {
+            Some(
+                rows.checked_mul(screen.glyph_height)
+                    .and_then(|height| height.checked_mul(scale))
+                    .ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidInput, "output dimensions overflow")
+                    })?
+                    .div_ceil(16)
+                    .max(1),
+            )
+        } else {
+            None
+        };
+        write_image(output, &image, columns, placement_rows)?;
+        if let Some(placement_rows) = placement_rows {
+            for _ in 0..placement_rows {
+                output.write_all(b"\r\n")?;
+            }
+        } else {
+            output.write_all(b"\r")?;
+        }
         if first_row + rows < screen.height
             && let Some(delay) = delay
         {
@@ -93,12 +250,107 @@ fn scaled(value: usize, scale: usize) -> io::Result<usize> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "output dimensions overflow"))
 }
 
-fn write_image<W: Write>(output: &mut W, image: &[u8], columns: usize) -> io::Result<()> {
+fn validate_fit_height(
+    screen: &Screen,
+    scale: usize,
+    columns: usize,
+    rows: usize,
+) -> io::Result<()> {
+    let (source_width, source_height) = if let Some(raster) = &screen.raster {
+        (raster.width, raster.height)
+    } else {
+        (
+            screen.width.checked_mul(8).ok_or_else(dimension_error)?,
+            rows.checked_mul(screen.glyph_height)
+                .ok_or_else(dimension_error)?,
+        )
+    };
+    let requested_width = source_width
+        .checked_mul(scale)
+        .ok_or_else(dimension_error)?;
+    let requested_height = source_height
+        .checked_mul(scale)
+        .ok_or_else(dimension_error)?;
+    let maximum_width = columns.checked_mul(8).ok_or_else(dimension_error)?;
+    if requested_width <= maximum_width {
+        return Ok(());
+    }
+
+    let fitted_height = div_ceil(
+        requested_height as u128 * maximum_width as u128,
+        requested_width as u128,
+    );
+    if fitted_height >= 16 {
+        return Ok(());
+    }
+    let minimum_pixels = div_ceil(16_u128 * requested_width as u128, requested_height as u128);
+    let minimum_columns = div_ceil(minimum_pixels, 8) as usize;
+    Err(io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!(
+            "--fit at {columns} columns would be less than one terminal row; terminal must be at least {minimum_columns} columns wide"
+        ),
+    ))
+}
+
+fn div_ceil(numerator: u128, denominator: u128) -> u128 {
+    numerator.div_ceil(denominator)
+}
+
+fn dimension_error() -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidInput, "output dimensions overflow")
+}
+
+fn output_columns(width: usize, scale: usize, mode: WidthMode) -> io::Result<usize> {
+    let columns = scaled(width, scale)?;
+    Ok(match mode {
+        WidthMode::Full => columns,
+        WidthMode::Crop(maximum) | WidthMode::Fit(maximum) => columns.min(maximum),
+    })
+}
+
+fn encode_image(
+    screen: &Screen,
+    first_row: usize,
+    rows: usize,
+    scale: usize,
+    width_mode: WidthMode,
+) -> io::Result<Vec<u8>> {
+    let maximum_width = |columns: usize| {
+        columns.checked_mul(8).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "output dimensions overflow")
+        })
+    };
+    let image = match width_mode {
+        WidthMode::Full => png::encode_screen_scaled(screen, first_row, rows, scale),
+        WidthMode::Crop(columns) => {
+            png::encode_screen_scaled_crop(screen, first_row, rows, scale, maximum_width(columns)?)
+        }
+        WidthMode::Fit(columns) => {
+            png::encode_screen_scaled_fit(screen, first_row, rows, scale, maximum_width(columns)?)
+        }
+    };
+    image.map_err(io::Error::other)
+}
+
+fn write_image<W: Write>(
+    output: &mut W,
+    image: &[u8],
+    columns: usize,
+    rows: Option<usize>,
+) -> io::Result<()> {
     let chunks = image.len().div_ceil(INPUT_CHUNK);
     for (index, bytes) in image.chunks(INPUT_CHUNK).enumerate() {
         let more = u8::from(index + 1 < chunks);
         if index == 0 {
-            write!(output, "\x1b_Ga=T,f=100,c={columns},q=2,m={more};")?;
+            if let Some(rows) = rows {
+                write!(
+                    output,
+                    "\x1b_Ga=T,f=100,c={columns},r={rows},C=1,q=2,m={more};"
+                )?;
+            } else {
+                write!(output, "\x1b_Ga=T,f=100,c={columns},q=2,m={more};")?;
+            }
         } else {
             write!(output, "\x1b_Gq=2,m={more};")?;
         }
@@ -186,6 +438,20 @@ mod tests {
                 .count(),
             2
         );
+        assert_eq!(
+            output
+                .windows(b",r=1,C=1".len())
+                .filter(|window| *window == b",r=1,C=1")
+                .count(),
+            2
+        );
+        assert_eq!(
+            output
+                .windows(2)
+                .filter(|window| *window == b"\r\n")
+                .count(),
+            2
+        );
     }
 
     #[test]
@@ -204,6 +470,60 @@ mod tests {
         write_screen_scaled(&mut output, &screen, 24, 2).unwrap();
         assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=2,q=2,m=0;"));
         assert!(output.ends_with(b"\x1b\\\r"));
+    }
+
+    #[test]
+    fn fit_output_caps_the_terminal_footprint_without_cropping_pixels() {
+        let screen = Screen {
+            width: 4,
+            height: 2,
+            cells: vec![Cell::default(); 8],
+            glyph_height: 16,
+            font: None,
+            palette: None,
+            utf8_supported: true,
+            raster: None,
+        };
+        let mut output = Vec::new();
+        write_screen_scaled_fit(&mut output, &screen, 24, 2, 3).unwrap();
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=3,q=2,m="));
+    }
+
+    #[test]
+    fn cropped_output_keeps_height_and_caps_width() {
+        let screen = Screen {
+            width: 4,
+            height: 1,
+            cells: vec![Cell::default(); 4],
+            glyph_height: 16,
+            font: None,
+            palette: None,
+            utf8_supported: true,
+            raster: None,
+        };
+        let mut output = Vec::new();
+        write_screen_scaled_cropped(&mut output, &screen, 24, 1, 3).unwrap();
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=3,q=2,m="));
+    }
+
+    #[test]
+    fn fit_reports_the_minimum_width_for_one_terminal_row() {
+        let screen = Screen {
+            width: 1_750,
+            height: 25,
+            cells: vec![Cell::default(); 1_750 * 25],
+            glyph_height: 8,
+            font: Some(crate::font::glyphs_8x8().to_vec()),
+            palette: None,
+            utf8_supported: true,
+            raster: None,
+        };
+        let error = validate_fit_height(&screen, 1, 120, screen.height).unwrap_err();
+        assert!(error.to_string().contains("at least 140 columns"));
+        assert!(validate_fit_height(&screen, 1, 140, screen.height).is_ok());
+
+        let slow_error = validate_fit_height(&screen, 1, 120, 1).unwrap_err();
+        assert!(slow_error.to_string().contains("at least 3500 columns"));
     }
 
     #[test]

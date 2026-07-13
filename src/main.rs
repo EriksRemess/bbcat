@@ -16,6 +16,7 @@ struct Options {
     chunk_lines: usize,
     output: Option<PathBuf>,
     kitty: bool,
+    fit: bool,
     delay: Option<Duration>,
     scale: usize,
     files: Vec<String>,
@@ -44,10 +45,14 @@ fn run() -> Result<(), String> {
     if options.output.is_some() && options.kitty {
         return Err("--output and --kitty cannot be used together".to_owned());
     }
+    if options.fit && !options.kitty {
+        return Err("--fit requires --kitty".to_owned());
+    }
     if options.scale > 1 && options.output.is_none() && !options.kitty {
         return Err("--2x requires --kitty or --output FILE".to_owned());
     }
-    if options.kitty && !io::stdout().is_terminal() {
+    let stdout_is_terminal = io::stdout().is_terminal();
+    if options.kitty && !stdout_is_terminal {
         return Err("--kitty requires terminal stdout".to_owned());
     }
     if options.kitty && !terminal::supports_kitty()? {
@@ -57,6 +62,10 @@ fn run() -> Result<(), String> {
         );
     }
 
+    let terminal_columns = stdout_is_terminal.then(terminal::width).flatten();
+    if options.kitty && terminal_columns.is_none() {
+        return Err("cannot determine terminal width for Kitty output".to_owned());
+    }
     let mut stdout = io::stdout().lock();
     for file in &options.files {
         let data = read(file)?;
@@ -68,17 +77,60 @@ fn run() -> Result<(), String> {
                 0,
                 document.screen.height,
                 options.scale,
-            )?;
+            )
+            .map_err(|error| format!("{file}: {error}"))?;
             write_png(&mut stdout, path, &png)?;
         } else if options.kitty {
             if let Some(delay) = options.delay {
-                bbcat::write_screen_slow_scaled(
-                    &mut stdout,
-                    &document.screen,
-                    delay,
-                    options.scale,
-                )
-                .map_err(|error| format!("{file}: {error}"))?;
+                if let Some(columns) = terminal_columns {
+                    if options.fit {
+                        bbcat::write_screen_slow_scaled_fit(
+                            &mut stdout,
+                            &document.screen,
+                            delay,
+                            options.scale,
+                            columns,
+                        )
+                        .map_err(|error| format!("{file}: {error}"))?;
+                    } else {
+                        bbcat::write_screen_slow_scaled_cropped(
+                            &mut stdout,
+                            &document.screen,
+                            delay,
+                            options.scale,
+                            columns,
+                        )
+                        .map_err(|error| format!("{file}: {error}"))?;
+                    }
+                } else {
+                    bbcat::write_screen_slow_scaled(
+                        &mut stdout,
+                        &document.screen,
+                        delay,
+                        options.scale,
+                    )
+                    .map_err(|error| format!("{file}: {error}"))?;
+                }
+            } else if let Some(columns) = terminal_columns {
+                if options.fit {
+                    bbcat::write_screen_scaled_fit(
+                        &mut stdout,
+                        &document.screen,
+                        options.chunk_lines,
+                        options.scale,
+                        columns,
+                    )
+                    .map_err(|error| format!("{file}: {error}"))?;
+                } else {
+                    bbcat::write_screen_scaled_cropped(
+                        &mut stdout,
+                        &document.screen,
+                        options.chunk_lines,
+                        options.scale,
+                        columns,
+                    )
+                    .map_err(|error| format!("{file}: {error}"))?;
+                }
             } else {
                 bbcat::write_screen_scaled(
                     &mut stdout,
@@ -89,7 +141,15 @@ fn run() -> Result<(), String> {
                 .map_err(|error| format!("{file}: {error}"))?;
             }
         } else if let Some(delay) = options.delay {
-            bbcat::write_text_slow(&mut stdout, &document.screen, delay)
+            if let Some(columns) = terminal_columns {
+                bbcat::write_text_slow_cropped(&mut stdout, &document.screen, delay, columns)
+                    .map_err(|error| format!("{file}: {error}"))?;
+            } else {
+                bbcat::write_text_slow(&mut stdout, &document.screen, delay)
+                    .map_err(|error| format!("{file}: {error}"))?;
+            }
+        } else if let Some(columns) = terminal_columns {
+            bbcat::write_text_cropped(&mut stdout, &document.screen, columns)
                 .map_err(|error| format!("{file}: {error}"))?;
         } else {
             bbcat::write_text(&mut stdout, &document.screen)
@@ -130,6 +190,7 @@ fn parse_args() -> Result<Option<Options>, String> {
         .map_or(24, |lines| lines.saturating_sub(1).clamp(1, 64));
     let mut output = None;
     let mut kitty = false;
+    let mut fit = false;
     let mut delay = None;
     let mut scale = 1;
     let mut files = Vec::new();
@@ -154,6 +215,7 @@ fn parse_args() -> Result<Option<Options>, String> {
                 ));
             }
             "--kitty" => kitty = true,
+            "--fit" => fit = true,
             "--slow" => {
                 delay.get_or_insert(Duration::from_millis(DEFAULT_DELAY_MS));
             }
@@ -184,6 +246,7 @@ fn parse_args() -> Result<Option<Options>, String> {
         chunk_lines,
         output,
         kitty,
+        fit,
         delay,
         scale,
         files,
@@ -224,6 +287,7 @@ Options:
   -w, --width COLS          Override text width; must match fixed binary/vector widths
       --chunk-lines ROWS    Kitty image height (default: LINES - 1, or 24)
       --kitty               Use Kitty graphics instead of UTF-8 text
+      --fit                 Scale complete Kitty art to terminal width instead of cropping
       --slow                Reveal character art one row at a time (25 ms/row)
       --delay MS            Set the slow-mode row delay (1..=10000)
       --2x                  Double Kitty or PNG output dimensions

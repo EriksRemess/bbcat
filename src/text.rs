@@ -40,7 +40,15 @@ const CP437: [char; 256] = [
 ];
 
 pub fn write_screen<W: Write>(output: &mut W, screen: &Screen) -> io::Result<()> {
-    write_screen_inner(output, screen, None)
+    write_screen_inner(output, screen, None, screen.width)
+}
+
+pub fn write_screen_cropped<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    columns: usize,
+) -> io::Result<()> {
+    write_screen_inner(output, screen, None, columns)
 }
 
 pub fn write_screen_slow<W: Write>(
@@ -54,14 +62,36 @@ pub fn write_screen_slow<W: Write>(
             "slow mode is not supported for RIPscrip graphics",
         ));
     }
-    write_screen_inner(output, screen, Some(delay))
+    write_screen_inner(output, screen, Some(delay), screen.width)
+}
+
+pub fn write_screen_slow_cropped<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    delay: Duration,
+    columns: usize,
+) -> io::Result<()> {
+    if screen.raster.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "slow mode is not supported for RIPscrip graphics",
+        ));
+    }
+    write_screen_inner(output, screen, Some(delay), columns)
 }
 
 fn write_screen_inner<W: Write>(
     output: &mut W,
     screen: &Screen,
     delay: Option<Duration>,
+    columns: usize,
 ) -> io::Result<()> {
+    if columns == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "UTF-8 crop width must be non-zero",
+        ));
+    }
     if screen.raster.is_some() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -84,7 +114,7 @@ fn write_screen_inner<W: Write>(
 
     for (row_index, row) in screen.cells.chunks_exact(screen.width).enumerate() {
         let mut active_colors = None;
-        for cell in row {
+        for cell in row.iter().take(columns) {
             let colors = (cell.foreground & 0x0f, cell.background & 0x0f);
             if active_colors != Some(colors) {
                 let foreground = palette[usize::from(colors.0)];
@@ -173,6 +203,30 @@ mod tests {
         .unwrap_err();
         assert!(error.to_string().contains("512-character"));
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn crops_each_utf8_row_to_the_requested_width() {
+        let mut output = Vec::new();
+        let screen = screen(
+            b"ABCDEF"
+                .iter()
+                .map(|&character| Cell {
+                    character: u16::from(character),
+                    foreground: 7,
+                    background: 0,
+                })
+                .collect(),
+        );
+        write_screen_cropped(&mut output, &screen, 3).unwrap();
+        assert!(String::from_utf8(output).unwrap().contains("ABC\x1b[0m"));
+    }
+
+    #[test]
+    fn rejects_a_zero_utf8_crop_width() {
+        let error =
+            write_screen_cropped(&mut Vec::new(), &screen(vec![Cell::default()]), 0).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]

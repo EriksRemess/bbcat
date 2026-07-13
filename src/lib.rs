@@ -12,10 +12,21 @@ mod text;
 mod xbin;
 
 pub use ansi::{Cell, Screen};
-pub use kitty::{write_screen, write_screen_scaled, write_screen_slow, write_screen_slow_scaled};
+pub use kitty::{
+    write_screen, write_screen_cropped, write_screen_fit, write_screen_scaled,
+    write_screen_scaled_cropped, write_screen_scaled_fit, write_screen_slow,
+    write_screen_slow_cropped, write_screen_slow_fit, write_screen_slow_scaled,
+    write_screen_slow_scaled_cropped, write_screen_slow_scaled_fit,
+};
 pub use png::{encode_screen, encode_screen_scaled};
 pub use sauce::Sauce;
-pub use text::{write_screen as write_text, write_screen_slow as write_text_slow};
+pub use text::{
+    write_screen as write_text, write_screen_cropped as write_text_cropped,
+    write_screen_slow as write_text_slow, write_screen_slow_cropped as write_text_slow_cropped,
+};
+
+const MAX_ANSI_WIDTH: usize = 10_000;
+const MAX_INFERRED_WIDTH: usize = 1_000;
 
 #[derive(Debug)]
 pub struct Document {
@@ -77,12 +88,12 @@ fn render_inner(
         let screen = xbin::parse(content, width_override)?;
         return Ok(Document { screen, sauce });
     }
-    let width = width_override
-        .or_else(|| {
-            sauce
-                .as_ref()
-                .and_then(|s| (s.width > 0).then_some(s.width))
-        })
+    let declared_width = width_override.or_else(|| {
+        sauce
+            .as_ref()
+            .and_then(|s| (s.width > 0).then_some(s.width))
+    });
+    let width = declared_width
         .or_else(|| {
             (!content.contains(&0x1b))
                 .then(|| plain_text_width(content))
@@ -90,8 +101,15 @@ fn render_inner(
         })
         .unwrap_or(80);
 
-    if !(1..=1000).contains(&width) {
-        return Err(format!("invalid canvas width {width}; expected 1..=1000"));
+    let maximum_width = if declared_width.is_some() {
+        MAX_ANSI_WIDTH
+    } else {
+        MAX_INFERRED_WIDTH
+    };
+    if !(1..=maximum_width).contains(&width) {
+        return Err(format!(
+            "invalid canvas width {width}; expected 1..={maximum_width}"
+        ));
     }
 
     let declared_height = sauce
@@ -99,12 +117,12 @@ fn render_inner(
         .and_then(|s| (s.height > 0).then_some(s.height));
     let ice_colors = sauce.as_ref().is_some_and(|s| s.ice_colors);
     let mut screen = ansi::parse(content, width, declared_height, ice_colors)?;
-    if sauce
+    if let Some(selected) = sauce
         .as_ref()
-        .is_some_and(|sauce| sauce.font_name.eq_ignore_ascii_case("IBM VGA50"))
+        .and_then(|sauce| font::sauce_font(&sauce.font_name))
     {
-        screen.glyph_height = 8;
-        screen.font = Some(font::glyphs_8x8().to_vec());
+        screen.glyph_height = selected.glyph_height;
+        screen.font = Some(selected.glyphs.to_vec());
     }
     Ok(Document { screen, sauce })
 }
@@ -281,5 +299,46 @@ mod tests {
         let document = render(&data, None).unwrap();
         assert_eq!(document.screen.glyph_height, 8);
         assert_eq!(document.screen.font.as_deref(), Some(font::glyphs_8x8()));
+    }
+
+    #[test]
+    fn sauce_selects_named_custom_fonts() {
+        for name in ["Amiga MicroKnight", "Amiga Topaz 2+", "Empathy by Skaboy"] {
+            let content = b"A";
+            let mut data = content.to_vec();
+            data.push(0x1a);
+            let mut record = [0_u8; 128];
+            record[..7].copy_from_slice(b"SAUCE00");
+            record[90..94].copy_from_slice(&(content.len() as u32).to_le_bytes());
+            record[96..98].copy_from_slice(&80_u16.to_le_bytes());
+            record[98..100].copy_from_slice(&1_u16.to_le_bytes());
+            record[106..106 + name.len()].copy_from_slice(name.as_bytes());
+            data.extend(record);
+
+            let document = render(&data, None).unwrap();
+            assert_eq!(document.screen.glyph_height, 16, "{name}");
+            assert_eq!(document.screen.font.as_ref().unwrap().len(), 4096, "{name}");
+            assert!(document.screen.utf8_supported, "{name}");
+        }
+    }
+
+    #[test]
+    fn accepts_extra_wide_ansi_within_the_cell_limit() {
+        let document = render(b"wide", Some(1_750)).unwrap();
+        assert_eq!((document.screen.width, document.screen.height), (1_750, 1));
+    }
+
+    #[test]
+    fn rejects_excessive_ansi_widths() {
+        let error = render(b"wide", Some(MAX_ANSI_WIDTH + 1)).unwrap_err();
+        assert!(error.contains("invalid canvas width"));
+        assert!(error.contains("10000"));
+    }
+
+    #[test]
+    fn rejects_excessive_inferred_plain_text_widths() {
+        let error = render(&vec![b'x'; MAX_INFERRED_WIDTH + 1], None).unwrap_err();
+        assert!(error.contains("invalid canvas width"));
+        assert!(error.contains("1000"));
     }
 }
