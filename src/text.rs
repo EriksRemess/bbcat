@@ -1,4 +1,8 @@
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    thread,
+    time::Duration,
+};
 
 use crate::{Screen, png::VGA_PALETTE};
 
@@ -36,6 +40,28 @@ const CP437: [char; 256] = [
 ];
 
 pub fn write_screen<W: Write>(output: &mut W, screen: &Screen) -> io::Result<()> {
+    write_screen_inner(output, screen, None)
+}
+
+pub fn write_screen_slow<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    delay: Duration,
+) -> io::Result<()> {
+    if screen.raster.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "slow mode is not supported for RIPscrip graphics",
+        ));
+    }
+    write_screen_inner(output, screen, Some(delay))
+}
+
+fn write_screen_inner<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    delay: Option<Duration>,
+) -> io::Result<()> {
     if screen.raster.is_some() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -56,7 +82,7 @@ pub fn write_screen<W: Write>(output: &mut W, screen: &Screen) -> io::Result<()>
     }
     let palette = screen.palette.unwrap_or(VGA_PALETTE);
 
-    for row in screen.cells.chunks_exact(screen.width) {
+    for (row_index, row) in screen.cells.chunks_exact(screen.width).enumerate() {
         let mut active_colors = None;
         for cell in row {
             let colors = (cell.foreground & 0x0f, cell.background & 0x0f);
@@ -80,6 +106,12 @@ pub fn write_screen<W: Write>(output: &mut W, screen: &Screen) -> io::Result<()>
             output.write_all(character.as_bytes())?;
         }
         output.write_all(b"\x1b[0m\r\n")?;
+        if row_index + 1 < screen.height
+            && let Some(delay) = delay
+        {
+            output.flush()?;
+            thread::sleep(delay);
+        }
     }
     output.flush()
 }
@@ -167,5 +199,20 @@ mod tests {
         let error = write_screen(&mut Vec::new(), &screen).unwrap_err();
         assert!(error.to_string().contains("RIPscrip"));
         assert!(error.to_string().contains("--kitty or --output"));
+    }
+
+    #[test]
+    fn slow_mode_rejects_raster_art() {
+        let mut screen = screen(Vec::new());
+        screen.width = 80;
+        screen.height = 22;
+        screen.raster = Some(crate::ansi::Raster {
+            width: 640,
+            height: 350,
+            pixels: vec![0; 640 * 350],
+        });
+        let error = write_screen_slow(&mut Vec::new(), &screen, Duration::ZERO).unwrap_err();
+        assert!(error.to_string().contains("slow mode"));
+        assert!(error.to_string().contains("RIPscrip"));
     }
 }

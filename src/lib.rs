@@ -12,10 +12,10 @@ mod text;
 mod xbin;
 
 pub use ansi::{Cell, Screen};
-pub use kitty::write_screen;
-pub use png::encode_screen;
+pub use kitty::{write_screen, write_screen_scaled, write_screen_slow, write_screen_slow_scaled};
+pub use png::{encode_screen, encode_screen_scaled};
 pub use sauce::Sauce;
-pub use text::write_screen as write_text;
+pub use text::{write_screen as write_text, write_screen_slow as write_text_slow};
 
 #[derive(Debug)]
 pub struct Document {

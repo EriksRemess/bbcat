@@ -3,15 +3,21 @@ use std::{
     io::{self, IsTerminal, Read},
     path::PathBuf,
     process::ExitCode,
+    time::Duration,
 };
 
 mod terminal;
+
+const DEFAULT_DELAY_MS: u64 = 25;
+const MAX_DELAY_MS: u64 = 10_000;
 
 struct Options {
     width: Option<usize>,
     chunk_lines: usize,
     output: Option<PathBuf>,
     kitty: bool,
+    delay: Option<Duration>,
+    scale: usize,
     files: Vec<String>,
 }
 
@@ -32,8 +38,14 @@ fn run() -> Result<(), String> {
     if options.output.is_some() && options.files.len() != 1 {
         return Err("--output requires exactly one input file".to_owned());
     }
+    if options.output.is_some() && options.delay.is_some() {
+        return Err("--slow/--delay cannot be used with --output".to_owned());
+    }
     if options.output.is_some() && options.kitty {
         return Err("--output and --kitty cannot be used together".to_owned());
+    }
+    if options.scale > 1 && options.output.is_none() && !options.kitty {
+        return Err("--2x requires --kitty or --output FILE".to_owned());
     }
     if options.kitty && !io::stdout().is_terminal() {
         return Err("--kitty requires terminal stdout".to_owned());
@@ -51,10 +63,33 @@ fn run() -> Result<(), String> {
         let document = bbcat::render_named(&data, options.width, file)
             .map_err(|error| format!("{file}: {error}"))?;
         if let Some(path) = &options.output {
-            let png = bbcat::encode_screen(&document.screen, 0, document.screen.height)?;
+            let png = bbcat::encode_screen_scaled(
+                &document.screen,
+                0,
+                document.screen.height,
+                options.scale,
+            )?;
             fs::write(path, png).map_err(|error| format!("{}: {error}", path.display()))?;
         } else if options.kitty {
-            bbcat::write_screen(&mut stdout, &document.screen, options.chunk_lines)
+            if let Some(delay) = options.delay {
+                bbcat::write_screen_slow_scaled(
+                    &mut stdout,
+                    &document.screen,
+                    delay,
+                    options.scale,
+                )
+                .map_err(|error| format!("{file}: {error}"))?;
+            } else {
+                bbcat::write_screen_scaled(
+                    &mut stdout,
+                    &document.screen,
+                    options.chunk_lines,
+                    options.scale,
+                )
+                .map_err(|error| format!("{file}: {error}"))?;
+            }
+        } else if let Some(delay) = options.delay {
+            bbcat::write_text_slow(&mut stdout, &document.screen, delay)
                 .map_err(|error| format!("{file}: {error}"))?;
         } else {
             bbcat::write_text(&mut stdout, &document.screen)
@@ -84,6 +119,8 @@ fn parse_args() -> Result<Option<Options>, String> {
         .map_or(24, |lines| lines.saturating_sub(1).clamp(1, 64));
     let mut output = None;
     let mut kitty = false;
+    let mut delay = None;
+    let mut scale = 1;
     let mut files = Vec::new();
     let mut arguments = env::args().skip(1);
     while let Some(argument) = arguments.next() {
@@ -106,6 +143,16 @@ fn parse_args() -> Result<Option<Options>, String> {
                 ));
             }
             "--kitty" => kitty = true,
+            "--slow" => {
+                delay.get_or_insert(Duration::from_millis(DEFAULT_DELAY_MS));
+            }
+            "--delay" => {
+                delay = Some(Duration::from_millis(milliseconds(
+                    &argument,
+                    arguments.next(),
+                )?));
+            }
+            "--2x" => scale = 2,
             "--" => {
                 files.extend(arguments);
                 break;
@@ -126,6 +173,8 @@ fn parse_args() -> Result<Option<Options>, String> {
         chunk_lines,
         output,
         kitty,
+        delay,
+        scale,
         files,
     }))
 }
@@ -135,6 +184,19 @@ fn number(option: &str, value: Option<String>) -> Result<usize, String> {
         .ok_or_else(|| format!("{option} requires a number"))?
         .parse()
         .map_err(|_| format!("{option} requires a positive integer"))
+}
+
+fn milliseconds(option: &str, value: Option<String>) -> Result<u64, String> {
+    let value = value
+        .ok_or_else(|| format!("{option} requires milliseconds between 1 and {MAX_DELAY_MS}"))?
+        .parse::<u64>()
+        .map_err(|_| format!("{option} requires milliseconds between 1 and {MAX_DELAY_MS}"))?;
+    if !(1..=MAX_DELAY_MS).contains(&value) {
+        return Err(format!(
+            "{option} requires milliseconds between 1 and {MAX_DELAY_MS}"
+        ));
+    }
+    Ok(value)
 }
 
 fn print_help() {
@@ -151,9 +213,30 @@ Options:
   -w, --width COLS          Override text width; must match fixed binary/vector widths
       --chunk-lines ROWS    Kitty image height (default: LINES - 1, or 24)
       --kitty               Use Kitty graphics instead of UTF-8 text
+      --slow                Reveal character art one row at a time (25 ms/row)
+      --delay MS            Set the slow-mode row delay (1..=10000)
+      --2x                  Double Kitty or PNG output dimensions
   -o, --output FILE         Write a PNG file
   -h, --help                Print help
   -V, --version             Print version"#,
         env!("CARGO_PKG_VERSION")
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validates_slow_mode_delays() {
+        assert_eq!(milliseconds("--delay", Some("25".to_owned())), Ok(25));
+        for value in [
+            None,
+            Some("0".to_owned()),
+            Some("10001".to_owned()),
+            Some("fast".to_owned()),
+        ] {
+            assert!(milliseconds("--delay", value).is_err());
+        }
+    }
 }

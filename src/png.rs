@@ -22,6 +22,18 @@ pub const VGA_PALETTE: [[u8; 3]; 16] = [
 const MAX_PNG_PIXELS: usize = 100_000_000;
 
 pub fn encode_screen(screen: &Screen, first_row: usize, rows: usize) -> Result<Vec<u8>, String> {
+    encode_screen_scaled(screen, first_row, rows, 1)
+}
+
+pub fn encode_screen_scaled(
+    screen: &Screen,
+    first_row: usize,
+    rows: usize,
+    scale: usize,
+) -> Result<Vec<u8>, String> {
+    if scale == 0 {
+        return Err("PNG scale must be non-zero".to_owned());
+    }
     if rows == 0
         || first_row
             .checked_add(rows)
@@ -33,16 +45,22 @@ pub fn encode_screen(screen: &Screen, first_row: usize, rows: usize) -> Result<V
         if first_row != 0 || rows != screen.height {
             return Err("PNG row ranges are not supported for raster art".to_owned());
         }
-        return encode_indexed(
+        return encode_indexed_scaled(
             raster.width,
             raster.height,
             &raster.pixels,
             screen.palette.unwrap_or(VGA_PALETTE),
+            scale,
         );
     }
-    let width = screen.width.checked_mul(8).ok_or("PNG width overflow")?;
+    let width = screen
+        .width
+        .checked_mul(8)
+        .and_then(|width| width.checked_mul(scale))
+        .ok_or("PNG width overflow")?;
     let height = rows
         .checked_mul(screen.glyph_height)
+        .and_then(|height| height.checked_mul(scale))
         .ok_or("PNG height overflow")?;
     let pixel_count = width
         .checked_mul(height)
@@ -64,33 +82,33 @@ pub fn encode_screen(screen: &Screen, first_row: usize, rows: usize) -> Result<V
 
     for character_row in first_row..first_row + rows {
         for glyph_row in 0..screen.glyph_height {
-            pixels.push(0); // PNG filter: None
-            let mut high_nibble = None;
-            for cell in
-                &screen.cells[character_row * screen.width..(character_row + 1) * screen.width]
-            {
-                let glyph = usize::from(cell.character)
-                    .checked_mul(screen.glyph_height)
-                    .and_then(|offset| offset.checked_add(glyph_row))
-                    .ok_or("font glyph index overflow")?;
-                let bits = *glyphs
-                    .get(glyph)
-                    .ok_or("character references a missing font glyph")?;
-                for bit in 0..8 {
-                    let color = if bits & (0x80 >> bit) != 0 {
-                        cell.foreground
-                    } else {
-                        cell.background
-                    } & 0x0f;
-                    if let Some(high) = high_nibble.take() {
-                        pixels.push((high << 4) | color);
-                    } else {
-                        high_nibble = Some(color);
+            for _ in 0..scale {
+                pixels.push(0); // PNG filter: None
+                let mut high_nibble = None;
+                for cell in
+                    &screen.cells[character_row * screen.width..(character_row + 1) * screen.width]
+                {
+                    let glyph = usize::from(cell.character)
+                        .checked_mul(screen.glyph_height)
+                        .and_then(|offset| offset.checked_add(glyph_row))
+                        .ok_or("font glyph index overflow")?;
+                    let bits = *glyphs
+                        .get(glyph)
+                        .ok_or("character references a missing font glyph")?;
+                    for bit in 0..8 {
+                        let color = if bits & (0x80 >> bit) != 0 {
+                            cell.foreground
+                        } else {
+                            cell.background
+                        } & 0x0f;
+                        for _ in 0..scale {
+                            push_color(&mut pixels, &mut high_nibble, color);
+                        }
                     }
                 }
-            }
-            if let Some(high) = high_nibble {
-                pixels.push(high << 4);
+                if let Some(high) = high_nibble {
+                    pixels.push(high << 4);
+                }
             }
         }
     }
@@ -114,29 +132,46 @@ pub fn encode_screen(screen: &Screen, first_row: usize, rows: usize) -> Result<V
     Ok(png)
 }
 
-fn encode_indexed(
+fn encode_indexed_scaled(
     width: usize,
     height: usize,
     colors: &[u8],
     palette: [[u8; 3]; 16],
+    scale: usize,
 ) -> Result<Vec<u8>, String> {
+    let source_pixel_count = width
+        .checked_mul(height)
+        .ok_or("PNG pixel count overflow")?;
+    if colors.len() != source_pixel_count {
+        return Err("raster pixel buffer does not match its dimensions".to_owned());
+    }
+    let width = width.checked_mul(scale).ok_or("PNG width overflow")?;
+    let height = height.checked_mul(scale).ok_or("PNG height overflow")?;
     let pixel_count = width
         .checked_mul(height)
         .ok_or("PNG pixel count overflow")?;
-    if colors.len() != pixel_count {
-        return Err("raster pixel buffer does not match its dimensions".to_owned());
-    }
     if pixel_count > MAX_PNG_PIXELS {
         return Err(format!(
             "PNG output exceeds the {MAX_PNG_PIXELS} pixel safety limit"
         ));
     }
 
-    let mut pixels = Vec::with_capacity((1 + width.div_ceil(2)) * height);
-    for row in colors.chunks_exact(width) {
-        pixels.push(0);
-        for pair in row.chunks(2) {
-            pixels.push((pair[0] << 4) | pair.get(1).copied().unwrap_or(0));
+    let capacity = (1 + width.div_ceil(2))
+        .checked_mul(height)
+        .ok_or("PNG buffer size overflow")?;
+    let mut pixels = Vec::with_capacity(capacity);
+    for row in colors.chunks_exact(width / scale) {
+        for _ in 0..scale {
+            pixels.push(0);
+            let mut high_nibble = None;
+            for &color in row {
+                for _ in 0..scale {
+                    push_color(&mut pixels, &mut high_nibble, color & 0x0f);
+                }
+            }
+            if let Some(high) = high_nibble {
+                pixels.push(high << 4);
+            }
         }
     }
 
@@ -154,6 +189,14 @@ fn encode_indexed(
     chunk(&mut png, b"IDAT", &zlib_store(&pixels));
     chunk(&mut png, b"IEND", &[]);
     Ok(png)
+}
+
+fn push_color(pixels: &mut Vec<u8>, high_nibble: &mut Option<u8>, color: u8) {
+    if let Some(high) = high_nibble.take() {
+        pixels.push((high << 4) | color);
+    } else {
+        *high_nibble = Some(color);
+    }
 }
 
 fn zlib_store(data: &[u8]) -> Vec<u8> {
@@ -227,5 +270,22 @@ mod tests {
         assert_eq!(&png[12..16], b"IHDR");
         assert_eq!(&png[24..29], &[4, 3, 0, 0, 0]);
         assert!(png.windows(4).any(|window| window == b"IEND"));
+    }
+
+    #[test]
+    fn scales_png_dimensions_by_two() {
+        let screen = Screen {
+            width: 1,
+            height: 1,
+            cells: vec![Cell::default()],
+            glyph_height: 16,
+            font: None,
+            palette: None,
+            utf8_supported: true,
+            raster: None,
+        };
+        let png = encode_screen_scaled(&screen, 0, 1, 2).unwrap();
+        assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 16);
+        assert_eq!(u32::from_be_bytes(png[20..24].try_into().unwrap()), 32);
     }
 }

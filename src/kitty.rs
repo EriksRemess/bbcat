@@ -1,4 +1,8 @@
-use std::io::{self, Write};
+use std::{
+    io::{self, Write},
+    thread,
+    time::Duration,
+};
 
 use crate::{Screen, png};
 
@@ -9,10 +13,61 @@ pub fn write_screen<W: Write>(
     screen: &Screen,
     chunk_lines: usize,
 ) -> io::Result<()> {
+    write_screen_scaled(output, screen, chunk_lines, 1)
+}
+
+pub fn write_screen_scaled<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    chunk_lines: usize,
+    scale: usize,
+) -> io::Result<()> {
+    write_screen_inner(output, screen, chunk_lines, None, scale)
+}
+
+pub fn write_screen_slow<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    delay: Duration,
+) -> io::Result<()> {
+    write_screen_slow_scaled(output, screen, delay, 1)
+}
+
+pub fn write_screen_slow_scaled<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    delay: Duration,
+    scale: usize,
+) -> io::Result<()> {
     if screen.raster.is_some() {
-        let image = png::encode_screen(screen, 0, screen.height).map_err(io::Error::other)?;
-        write_image(output, &image, screen.width, screen.height)?;
-        for _ in 0..screen.height {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "slow mode is not supported for RIPscrip graphics",
+        ));
+    }
+    write_screen_inner(output, screen, 1, Some(delay), scale)
+}
+
+fn write_screen_inner<W: Write>(
+    output: &mut W,
+    screen: &Screen,
+    chunk_lines: usize,
+    delay: Option<Duration>,
+    scale: usize,
+) -> io::Result<()> {
+    if scale == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "output scale must be non-zero",
+        ));
+    }
+    if screen.raster.is_some() {
+        let image =
+            png::encode_screen_scaled(screen, 0, screen.height, scale).map_err(io::Error::other)?;
+        let columns = scaled(screen.width, scale)?;
+        let rows = scaled(screen.height, scale)?;
+        write_image(output, &image, columns, rows)?;
+        for _ in 0..rows {
             output.write_all(b"\r\n")?;
         }
         return output.flush();
@@ -20,13 +75,28 @@ pub fn write_screen<W: Write>(
     let chunk_lines = chunk_lines.max(1);
     for first_row in (0..screen.height).step_by(chunk_lines) {
         let rows = chunk_lines.min(screen.height - first_row);
-        let image = png::encode_screen(screen, first_row, rows).map_err(io::Error::other)?;
-        write_image(output, &image, screen.width, rows)?;
-        for _ in 0..rows {
+        let image =
+            png::encode_screen_scaled(screen, first_row, rows, scale).map_err(io::Error::other)?;
+        let columns = scaled(screen.width, scale)?;
+        let display_rows = scaled(rows, scale)?;
+        write_image(output, &image, columns, display_rows)?;
+        for _ in 0..display_rows {
             output.write_all(b"\r\n")?;
+        }
+        if first_row + rows < screen.height
+            && let Some(delay) = delay
+        {
+            output.flush()?;
+            thread::sleep(delay);
         }
     }
     output.flush()
+}
+
+fn scaled(value: usize, scale: usize) -> io::Result<usize> {
+    value
+        .checked_mul(scale)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "output dimensions overflow"))
 }
 
 fn write_image<W: Write>(
@@ -107,5 +177,46 @@ mod tests {
         write_screen(&mut output, &screen, 24).unwrap();
         assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,r=1,C=1,q=2,m=0;"));
         assert!(output.ends_with(b"\x1b\\\r\n"));
+    }
+
+    #[test]
+    fn slow_output_uses_one_image_per_character_row() {
+        let screen = Screen {
+            width: 1,
+            height: 2,
+            cells: vec![Cell::default(); 2],
+            glyph_height: 16,
+            font: None,
+            palette: None,
+            utf8_supported: true,
+            raster: None,
+        };
+        let mut output = Vec::new();
+        write_screen_slow(&mut output, &screen, Duration::ZERO).unwrap();
+        assert_eq!(
+            output
+                .windows(b"\x1b_Ga=T".len())
+                .filter(|window| *window == b"\x1b_Ga=T")
+                .count(),
+            2
+        );
+    }
+
+    #[test]
+    fn scaled_output_uses_twice_the_terminal_footprint() {
+        let screen = Screen {
+            width: 1,
+            height: 1,
+            cells: vec![Cell::default()],
+            glyph_height: 16,
+            font: None,
+            palette: None,
+            utf8_supported: true,
+            raster: None,
+        };
+        let mut output = Vec::new();
+        write_screen_scaled(&mut output, &screen, 24, 2).unwrap();
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=2,r=2,C=1,q=2,m=0;"));
+        assert!(output.ends_with(b"\x1b\\\r\n\r\n"));
     }
 }
