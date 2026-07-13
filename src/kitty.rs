@@ -65,11 +65,8 @@ fn write_screen_inner<W: Write>(
         let image =
             png::encode_screen_scaled(screen, 0, screen.height, scale).map_err(io::Error::other)?;
         let columns = scaled(screen.width, scale)?;
-        let rows = scaled(screen.height, scale)?;
         write_image(output, &image, columns)?;
-        for _ in 0..rows {
-            output.write_all(b"\r\n")?;
-        }
+        output.write_all(b"\r")?;
         return output.flush();
     }
     let chunk_lines = chunk_lines.max(1);
@@ -78,18 +75,8 @@ fn write_screen_inner<W: Write>(
         let image =
             png::encode_screen_scaled(screen, first_row, rows, scale).map_err(io::Error::other)?;
         let columns = scaled(screen.width, scale)?;
-        let display_rows = rows
-            .checked_mul(screen.glyph_height)
-            .and_then(|height| height.checked_mul(scale))
-            .ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "output dimensions overflow")
-            })?
-            .div_ceil(16)
-            .max(1);
         write_image(output, &image, columns)?;
-        for _ in 0..display_rows {
-            output.write_all(b"\r\n")?;
-        }
+        output.write_all(b"\r")?;
         if first_row + rows < screen.height
             && let Some(delay) = delay
         {
@@ -111,7 +98,7 @@ fn write_image<W: Write>(output: &mut W, image: &[u8], columns: usize) -> io::Re
     for (index, bytes) in image.chunks(INPUT_CHUNK).enumerate() {
         let more = u8::from(index + 1 < chunks);
         if index == 0 {
-            write!(output, "\x1b_Ga=T,f=100,c={columns},C=1,q=2,m={more};")?;
+            write!(output, "\x1b_Ga=T,f=100,c={columns},q=2,m={more};")?;
         } else {
             write!(output, "\x1b_Gq=2,m={more};")?;
         }
@@ -174,8 +161,8 @@ mod tests {
         };
         let mut output = Vec::new();
         write_screen(&mut output, &screen, 24).unwrap();
-        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,C=1,q=2,m=0;"));
-        assert!(output.ends_with(b"\x1b\\\r\n"));
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,q=2,m=0;"));
+        assert!(output.ends_with(b"\x1b\\\r"));
     }
 
     #[test]
@@ -215,8 +202,8 @@ mod tests {
         };
         let mut output = Vec::new();
         write_screen_scaled(&mut output, &screen, 24, 2).unwrap();
-        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=2,C=1,q=2,m=0;"));
-        assert!(output.ends_with(b"\x1b\\\r\n\r\n"));
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=2,q=2,m=0;"));
+        assert!(output.ends_with(b"\x1b\\\r"));
     }
 
     #[test]
@@ -233,14 +220,8 @@ mod tests {
         };
         let mut output = Vec::new();
         write_screen(&mut output, &screen, 24).unwrap();
-        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,C=1,q=2,m=0;"));
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,q=2,m=0;"));
         assert!(!output.windows(3).any(|window| window == b",r="));
-        assert_eq!(
-            output
-                .windows(2)
-                .filter(|window| *window == b"\r\n")
-                .count(),
-            10
-        );
+        assert!(output.ends_with(b"\x1b\\\r"));
     }
 }
