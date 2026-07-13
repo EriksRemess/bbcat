@@ -31,7 +31,6 @@ pub(crate) struct Glyph {
 
 #[derive(Clone, Debug)]
 pub(crate) struct StrokeFont {
-    pub height: i32,
     glyphs: Vec<Option<Glyph>>,
 }
 
@@ -72,7 +71,7 @@ fn parse(data: &[u8]) -> Result<Vec<StrokeFont>, String> {
     let mut position = 5;
     let mut fonts = Vec::with_capacity(10);
     for _ in 0..10 {
-        let height = i32::from(byte(data, &mut position)?);
+        let _height = byte(data, &mut position)?;
         let character_count = usize::from(word(data, &mut position)?);
         if character_count > 224 {
             return Err("embedded stroke font has too many glyphs".to_owned());
@@ -100,7 +99,7 @@ fn parse(data: &[u8]) -> Result<Vec<StrokeFont>, String> {
             }
             glyphs[32 + relative] = Some(Glyph { width, strokes });
         }
-        fonts.push(StrokeFont { height, glyphs });
+        fonts.push(StrokeFont { glyphs });
     }
     if position != data.len() {
         return Err("trailing data in embedded stroke fonts".to_owned());
@@ -131,7 +130,6 @@ mod tests {
         assert_eq!(bitmap().len(), 2048);
         for index in 1..=10 {
             let font = stroke_font(index).unwrap();
-            assert!(font.height > 0);
             assert!(font.glyph(b'A').is_some());
         }
     }

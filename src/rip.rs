@@ -201,6 +201,10 @@ impl<'a> Parser<'a> {
                     let rectangle = self.rectangle("bar")?;
                     self.canvas.bar(rectangle);
                 }
+                (b'R', None) => {
+                    let rectangle = self.rectangle("rectangle")?;
+                    self.canvas.rectangle_outline(rectangle);
+                }
                 (b'o', None) => {
                     let center = self.point("filled oval center")?;
                     let radius = self.point("filled oval radius")?;
@@ -682,6 +686,15 @@ impl Canvas {
         }
     }
 
+    fn rectangle_outline(&mut self, rectangle: (i32, i32, i32, i32)) {
+        let (left, right) = ordered(rectangle.0, rectangle.2);
+        let (top, bottom) = ordered(rectangle.1, rectangle.3);
+        self.line((left, top), (right, top));
+        self.line((right, top), (right, bottom));
+        self.line((right, bottom), (left, bottom));
+        self.line((left, bottom), (left, top));
+    }
+
     fn scan_ellipse(
         &self,
         center: (i32, i32),
@@ -1000,17 +1013,16 @@ impl Canvas {
         let Some(glyph) = font.glyph(character) else {
             return 0;
         };
-        let height = bgi_font::scale(font.height, self.character_size);
         let mut current = None;
         for stroke in &glyph.strokes {
             let position = if self.text_direction == 0 {
                 (
                     point.0 + bgi_font::scale(stroke.x, self.character_size),
-                    point.1 + height - bgi_font::scale(stroke.y, self.character_size),
+                    point.1 + bgi_font::scale(stroke.y, self.character_size),
                 )
             } else {
                 (
-                    point.0 + height - bgi_font::scale(stroke.y, self.character_size),
+                    point.0 + bgi_font::scale(stroke.y, self.character_size),
                     point.1 - bgi_font::scale(stroke.x, self.character_size),
                 )
             };
@@ -1142,6 +1154,11 @@ mod tests {
         let pattern = parse(b"!|*|s73000000000000000F|B00000707|#", None).unwrap();
         assert_eq!(pattern.screen_pixel(0, 0), 15, "set user-pattern bit");
         assert_eq!(pattern.screen_pixel(0, 1), 0, "clear user-pattern bit");
+
+        let rectangle = parse(b"!|*|c0F|R05050F0F|#", None).unwrap();
+        assert_eq!(rectangle.screen_pixel(5, 5), 15, "rectangle corner");
+        assert_eq!(rectangle.screen_pixel(10, 5), 15, "rectangle edge");
+        assert_eq!(rectangle.screen_pixel(10, 10), 0, "rectangle interior");
     }
 
     #[test]
@@ -1162,6 +1179,18 @@ mod tests {
         assert!(bitmap_pixels > 0);
         assert!(triplex_pixels > 0);
         assert_ne!(bitmap_pixels, triplex_pixels);
+
+        let little = parse(b"!|*|c0F|Y02000600|@0A0Aw|#", None).unwrap();
+        let lit_rows: Vec<_> = little
+            .raster
+            .unwrap()
+            .pixels
+            .chunks_exact(WIDTH)
+            .enumerate()
+            .filter_map(|(row, pixels)| pixels.iter().any(|&pixel| pixel != 0).then_some(row))
+            .collect();
+        assert_eq!(lit_rows.first(), Some(&18));
+        assert_eq!(lit_rows.last(), Some(&25));
     }
 
     #[test]
