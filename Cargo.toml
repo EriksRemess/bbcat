@@ -6,6 +6,7 @@ description = "Render ANSI, DIZ, and XBin art in terminals using the Kitty graph
 license = "MIT AND BSD-2-Clause"
 readme = "README.md"
 documentation = "https://docs.rs/bbcat"
+repository = "https://github.com/EriksRemess/bbcat"
 keywords = ["ansi-art", "bbs", "kitty", "terminal", "xbin"]
 categories = ["command-line-utilities", "multimedia::images"]
 include = [
