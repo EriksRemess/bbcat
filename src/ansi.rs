@@ -106,12 +106,7 @@ pub fn parse(
                 parser.pending_wrap = false;
                 index += 1;
             }
-            0x08 => {
-                parser.x = parser.x.saturating_sub(1);
-                parser.pending_wrap = false;
-                index += 1;
-            }
-            0x00..=0x1f => index += 1,
+            0x1a => index += 1,
             character => {
                 parser.put(character)?;
                 index += 1;
@@ -238,11 +233,26 @@ impl Parser {
         };
         let amount = || parameters.first().copied().unwrap_or(1).max(1);
 
+        if command != b'm' && self.pending_wrap {
+            self.x = 0;
+            self.y = self.y.saturating_add(1);
+        }
+        if command != b'm' {
+            self.pending_wrap = false;
+        }
         match command {
             b'm' => self.sgr(&parameters),
             b'A' => self.y = self.y.saturating_sub(amount()),
             b'B' => self.y = self.y.saturating_add(amount()),
-            b'C' => self.x = self.x.saturating_add(amount()).min(self.width - 1),
+            b'C' => {
+                let column = self.x.saturating_add(amount());
+                if column >= self.width {
+                    self.x = self.width - 1;
+                    self.pending_wrap = self.auto_wrap;
+                } else {
+                    self.x = column;
+                }
+            }
             b'D' => self.x = self.x.saturating_sub(amount()),
             b'E' => {
                 self.y = self.y.saturating_add(amount());
@@ -267,7 +277,6 @@ impl Parser {
             b'l' if private && parameters.contains(&7) => self.auto_wrap = false,
             _ => {}
         }
-        self.pending_wrap = false;
     }
 
     fn sgr(&mut self, parameters: &[usize]) {
@@ -361,6 +370,28 @@ mod tests {
     }
 
     #[test]
+    fn sgr_preserves_a_pending_wrap() {
+        let screen = parse(b"1234\x1b[31mX", 4, None, false).unwrap();
+        assert_eq!(screen.height, 2);
+        assert_eq!(screen.cells[4].character, u16::from(b'X'));
+        assert_eq!(screen.cells[4].foreground, 1);
+    }
+
+    #[test]
+    fn cursor_forward_can_reach_the_wrap_sentinel() {
+        let screen = parse(b"\x1b[4CX", 4, None, false).unwrap();
+        assert_eq!(screen.height, 2);
+        assert_eq!(screen.cells[4].character, u16::from(b'X'));
+    }
+
+    #[test]
+    fn cursor_forward_is_applied_after_a_pending_wrap() {
+        let screen = parse(b"1234\x1b[2CX", 4, None, false).unwrap();
+        assert_eq!(screen.height, 2);
+        assert_eq!(screen.cells[6].character, u16::from(b'X'));
+    }
+
+    #[test]
     fn bold_selects_bright_foreground() {
         let screen = parse(b"\x1b[1;31mX", 1, None, false).unwrap();
         assert_eq!(screen.cells[0].foreground, 9);
@@ -385,8 +416,15 @@ mod tests {
     }
 
     #[test]
+    fn cp437_control_range_glyphs_are_printable() {
+        let screen = parse(b"\x03\x16", 2, None, false).unwrap();
+        assert_eq!(screen.cells[0].character, 0x03);
+        assert_eq!(screen.cells[1].character, 0x16);
+    }
+
+    #[test]
     fn erase_uses_the_active_background() {
-        let screen = parse(b"abc\x1b[44m\x1b[2K", 3, None, false).unwrap();
+        let screen = parse(b"abc\x1b[44m\x1b[2K", 4, None, false).unwrap();
         assert!(screen.cells.iter().all(|cell| cell.background == 4));
     }
 

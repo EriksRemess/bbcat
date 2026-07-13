@@ -108,7 +108,7 @@ fn plain_text_width(data: &[u8]) -> Option<usize> {
                 column = 0;
             }
             b'\t' => column = ((column / 8) + 1) * 8,
-            0x00..=0x1f => {}
+            0x1a => {}
             _ => column += 1,
         }
         widest = widest.max(column);
@@ -132,6 +132,14 @@ mod tests {
     fn plain_diz_uses_its_content_width() {
         let doc = render(b"FILE_ID.DIZ\r\nhello", None).unwrap();
         assert_eq!(doc.screen.width, 11);
+    }
+
+    #[test]
+    fn plain_diz_counts_cp437_control_range_glyphs() {
+        let doc = render(b"\x03\x16", None).unwrap();
+        assert_eq!(doc.screen.width, 2);
+        assert_eq!(doc.screen.cells[0].character, 0x03);
+        assert_eq!(doc.screen.cells[1].character, 0x16);
     }
 
     #[test]

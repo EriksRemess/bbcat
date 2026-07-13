@@ -1,13 +1,19 @@
 [package]
 name = "bbcat"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Render ANSI, DIZ, and XBin art in terminals using the Kitty graphics protocol"
-license = "MIT"
+license = "MIT AND BSD-2-Clause"
 readme = "README.md"
 documentation = "https://docs.rs/bbcat"
 keywords = ["ansi-art", "bbs", "kitty", "terminal", "xbin"]
 categories = ["command-line-utilities", "multimedia::images"]
-include = ["/src/**", "/Cargo.toml", "/README.md", "/LICENSE"]
+include = [
+    "/src/**",
+    "/Cargo.toml",
+    "/README.md",
+    "/LICENSE",
+    "/THIRD_PARTY_LICENSES",
+]
 
 [dependencies]
