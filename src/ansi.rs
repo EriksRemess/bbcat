@@ -1,0 +1,404 @@
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Cell {
+    pub character: u16,
+    pub foreground: u8,
+    pub background: u8,
+}
+
+impl Default for Cell {
+    fn default() -> Self {
+        Self {
+            character: b' ' as u16,
+            foreground: 7,
+            background: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Screen {
+    pub width: usize,
+    pub height: usize,
+    pub cells: Vec<Cell>,
+    pub(crate) glyph_height: usize,
+    pub(crate) font: Option<Vec<u8>>,
+    pub(crate) palette: Option<[[u8; 3]; 16]>,
+}
+
+pub(crate) const MAX_CELLS: usize = 10_000_000;
+
+#[derive(Clone, Copy)]
+struct Style {
+    foreground: u8,
+    background: u8,
+    bold: bool,
+    blink: bool,
+    inverse: bool,
+}
+
+impl Default for Style {
+    fn default() -> Self {
+        Self {
+            foreground: 7,
+            background: 0,
+            bold: false,
+            blink: false,
+            inverse: false,
+        }
+    }
+}
+
+struct Parser {
+    width: usize,
+    cells: Vec<Cell>,
+    x: usize,
+    y: usize,
+    saved: (usize, usize),
+    style: Style,
+    ice_colors: bool,
+    auto_wrap: bool,
+    pending_wrap: bool,
+    max_written_row: Option<usize>,
+}
+
+pub fn parse(
+    bytes: &[u8],
+    width: usize,
+    declared_height: Option<usize>,
+    ice_colors: bool,
+) -> Result<Screen, String> {
+    let initial_cells = width
+        .checked_mul(declared_height.unwrap_or(1).max(1))
+        .ok_or_else(canvas_too_large)?;
+    if initial_cells > MAX_CELLS {
+        return Err(canvas_too_large());
+    }
+    let mut parser = Parser {
+        width,
+        cells: vec![Cell::default(); initial_cells],
+        x: 0,
+        y: 0,
+        saved: (0, 0),
+        style: Style::default(),
+        ice_colors,
+        auto_wrap: true,
+        pending_wrap: false,
+        max_written_row: None,
+    };
+
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            0x1b => index += parser.escape(&bytes[index..]),
+            b'\r' => {
+                parser.x = 0;
+                parser.pending_wrap = false;
+                index += 1;
+            }
+            b'\n' => {
+                parser.y = parser.y.saturating_add(1);
+                parser.pending_wrap = false;
+                index += 1;
+            }
+            b'\t' => {
+                let next = ((parser.x / 8) + 1) * 8;
+                parser.x = next.min(width.saturating_sub(1));
+                parser.pending_wrap = false;
+                index += 1;
+            }
+            0x08 => {
+                parser.x = parser.x.saturating_sub(1);
+                parser.pending_wrap = false;
+                index += 1;
+            }
+            0x00..=0x1f => index += 1,
+            character => {
+                parser.put(character)?;
+                index += 1;
+            }
+        }
+    }
+
+    let measured = parser.max_written_row.map_or(1, |row| row + 1);
+    let height = declared_height.unwrap_or(measured).max(measured).max(1);
+    parser.ensure_row(height - 1)?;
+    parser.cells.truncate(width * height);
+    Ok(Screen {
+        width,
+        height,
+        cells: parser.cells,
+        glyph_height: 16,
+        font: None,
+        palette: None,
+    })
+}
+
+impl Parser {
+    fn ensure_row(&mut self, row: usize) -> Result<(), String> {
+        let required = row
+            .checked_add(1)
+            .and_then(|rows| rows.checked_mul(self.width))
+            .ok_or_else(canvas_too_large)?;
+        if required > MAX_CELLS {
+            return Err(canvas_too_large());
+        }
+        if self.cells.len() < required {
+            self.cells.resize(required, Cell::default());
+        }
+        Ok(())
+    }
+
+    fn put(&mut self, character: u8) -> Result<(), String> {
+        if self.pending_wrap {
+            self.x = 0;
+            self.y = self.y.saturating_add(1);
+            self.pending_wrap = false;
+        }
+        self.ensure_row(self.y)?;
+        let (mut foreground, mut background) = (self.style.foreground, self.style.background);
+        if self.style.bold && foreground < 8 {
+            foreground += 8;
+        }
+        if self.style.blink && self.ice_colors && background < 8 {
+            background += 8;
+        }
+        if self.style.inverse {
+            (foreground, background) = (background, foreground);
+        }
+        self.cells[self.y * self.width + self.x] = Cell {
+            character: u16::from(character),
+            foreground,
+            background,
+        };
+        self.max_written_row = Some(self.max_written_row.map_or(self.y, |row| row.max(self.y)));
+
+        if self.x + 1 == self.width {
+            self.pending_wrap = self.auto_wrap;
+        } else {
+            self.x += 1;
+        }
+        Ok(())
+    }
+
+    fn escape(&mut self, bytes: &[u8]) -> usize {
+        if bytes.len() < 2 {
+            return 1;
+        }
+        match bytes[1] {
+            b'[' => {
+                let Some(relative_end) = bytes[2..]
+                    .iter()
+                    .position(|byte| (0x40..=0x7e).contains(byte))
+                else {
+                    return bytes.len();
+                };
+                let end = relative_end + 2;
+                self.csi(&bytes[2..end], bytes[end]);
+                end + 1
+            }
+            b'7' => {
+                self.saved = (self.x, self.y);
+                2
+            }
+            b'8' => {
+                (self.x, self.y) = self.saved;
+                self.pending_wrap = false;
+                2
+            }
+            b'c' => {
+                self.x = 0;
+                self.y = 0;
+                self.style = Style::default();
+                self.pending_wrap = false;
+                2
+            }
+            _ => 2,
+        }
+    }
+
+    fn csi(&mut self, raw: &[u8], command: u8) {
+        let private = raw.first() == Some(&b'?');
+        let raw = if private { &raw[1..] } else { raw };
+        let parameters: Vec<usize> = if raw.is_empty() {
+            Vec::new()
+        } else {
+            raw.split(|&byte| byte == b';')
+                .map(|part| {
+                    part.iter().fold(0_usize, |value, &digit| {
+                        if digit.is_ascii_digit() {
+                            value
+                                .saturating_mul(10)
+                                .saturating_add((digit - b'0') as usize)
+                        } else {
+                            value
+                        }
+                    })
+                })
+                .collect()
+        };
+        let amount = || parameters.first().copied().unwrap_or(1).max(1);
+
+        match command {
+            b'm' => self.sgr(&parameters),
+            b'A' => self.y = self.y.saturating_sub(amount()),
+            b'B' => self.y = self.y.saturating_add(amount()),
+            b'C' => self.x = self.x.saturating_add(amount()).min(self.width - 1),
+            b'D' => self.x = self.x.saturating_sub(amount()),
+            b'E' => {
+                self.y = self.y.saturating_add(amount());
+                self.x = 0;
+            }
+            b'F' => {
+                self.y = self.y.saturating_sub(amount());
+                self.x = 0;
+            }
+            b'G' | b'`' => self.x = amount().saturating_sub(1).min(self.width - 1),
+            b'd' => self.y = amount().saturating_sub(1),
+            b'H' | b'f' => {
+                self.y = parameters.first().copied().unwrap_or(1).max(1) - 1;
+                self.x = parameters.get(1).copied().unwrap_or(1).max(1) - 1;
+                self.x = self.x.min(self.width - 1);
+            }
+            b'J' => self.erase_display(parameters.first().copied().unwrap_or(0)),
+            b'K' => self.erase_line(parameters.first().copied().unwrap_or(0)),
+            b's' => self.saved = (self.x, self.y),
+            b'u' => (self.x, self.y) = self.saved,
+            b'h' if private && parameters.contains(&7) => self.auto_wrap = true,
+            b'l' if private && parameters.contains(&7) => self.auto_wrap = false,
+            _ => {}
+        }
+        self.pending_wrap = false;
+    }
+
+    fn sgr(&mut self, parameters: &[usize]) {
+        let parameters = if parameters.is_empty() {
+            &[0][..]
+        } else {
+            parameters
+        };
+        for &parameter in parameters {
+            match parameter {
+                0 => self.style = Style::default(),
+                1 => self.style.bold = true,
+                5 | 6 => self.style.blink = true,
+                7 => self.style.inverse = true,
+                22 => self.style.bold = false,
+                25 => self.style.blink = false,
+                27 => self.style.inverse = false,
+                30..=37 => self.style.foreground = (parameter - 30) as u8,
+                39 => self.style.foreground = 7,
+                40..=47 => self.style.background = (parameter - 40) as u8,
+                49 => self.style.background = 0,
+                90..=97 => {
+                    self.style.foreground = (parameter - 90 + 8) as u8;
+                    self.style.bold = false;
+                }
+                100..=107 => self.style.background = (parameter - 100 + 8) as u8,
+                _ => {}
+            }
+        }
+    }
+
+    fn erase_line(&mut self, mode: usize) {
+        if self.ensure_row(self.y).is_err() {
+            return;
+        }
+        let (start, end) = match mode {
+            1 => (0, self.x + 1),
+            2 => (0, self.width),
+            _ => (self.x, self.width),
+        };
+        let row = self.y * self.width;
+        let blank = self.blank_cell();
+        self.cells[row + start..row + end].fill(blank);
+    }
+
+    fn erase_display(&mut self, mode: usize) {
+        if self.ensure_row(self.y).is_err() {
+            return;
+        }
+        let cursor = self.y * self.width + self.x;
+        let blank = self.blank_cell();
+        match mode {
+            1 => self.cells[..=cursor].fill(blank),
+            2 | 3 => self.cells.fill(blank),
+            _ => self.cells[cursor..].fill(blank),
+        }
+    }
+
+    fn blank_cell(&self) -> Cell {
+        let (mut foreground, mut background) = (self.style.foreground, self.style.background);
+        if self.style.bold && foreground < 8 {
+            foreground += 8;
+        }
+        if self.style.blink && self.ice_colors && background < 8 {
+            background += 8;
+        }
+        if self.style.inverse {
+            (foreground, background) = (background, foreground);
+        }
+        Cell {
+            character: b' ' as u16,
+            foreground,
+            background,
+        }
+    }
+}
+
+fn canvas_too_large() -> String {
+    format!("ANSI canvas exceeds the {MAX_CELLS} cell safety limit")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn crlf_after_last_column_does_not_double_wrap() {
+        let screen = parse(b"1234\r\nX", 4, None, false).unwrap();
+        assert_eq!(screen.height, 2);
+        assert_eq!(screen.cells[4].character, u16::from(b'X'));
+    }
+
+    #[test]
+    fn bold_selects_bright_foreground() {
+        let screen = parse(b"\x1b[1;31mX", 1, None, false).unwrap();
+        assert_eq!(screen.cells[0].foreground, 9);
+    }
+
+    #[test]
+    fn sauce_ice_mode_turns_blink_into_bright_background() {
+        let screen = parse(b"\x1b[5;44mX", 1, None, true).unwrap();
+        assert_eq!(screen.cells[0].background, 12);
+    }
+
+    #[test]
+    fn cursor_position_overwrites_cells() {
+        let screen = parse(b"abc\x1b[1;2HZ", 4, None, false).unwrap();
+        assert_eq!(screen.cells[1].character, u16::from(b'Z'));
+    }
+
+    #[test]
+    fn cp437_house_is_printable() {
+        let screen = parse(b"\x7f", 1, None, false).unwrap();
+        assert_eq!(screen.cells[0].character, 0x7f);
+    }
+
+    #[test]
+    fn erase_uses_the_active_background() {
+        let screen = parse(b"abc\x1b[44m\x1b[2K", 3, None, false).unwrap();
+        assert!(screen.cells.iter().all(|cell| cell.background == 4));
+    }
+
+    #[test]
+    fn rejects_excessive_declared_dimensions_before_allocating() {
+        let error = parse(b"", 1000, Some(65_535), false).unwrap_err();
+        assert!(error.contains("safety limit"));
+    }
+
+    #[test]
+    fn rejects_cursor_movement_beyond_the_canvas_limit() {
+        let error = parse(b"\x1b[99999999BX", 80, None, false).unwrap_err();
+        assert!(error.contains("safety limit"));
+    }
+}
