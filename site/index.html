@@ -17,6 +17,12 @@
       --cyan: #63d9e6;
       --yellow: #f2d96b;
       --pink: #e578c2;
+      --space-xs: 0.5rem;
+      --space-sm: 0.75rem;
+      --space-md: 1rem;
+      --space-lg: 1.5rem;
+      --space-xl: 2rem;
+      --space-section: 3rem;
     }
 
     * { box-sizing: border-box; }
@@ -52,6 +58,9 @@
     }
 
     .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-xs);
       color: var(--green);
       font-size: 1.15rem;
       font-weight: 800;
@@ -59,9 +68,9 @@
       letter-spacing: -0.04em;
     }
 
-    .brand::before { content: "❯ "; }
+    .brand::before { content: "❯"; }
 
-    nav { display: flex; gap: 1.25rem; }
+    nav { display: flex; gap: var(--space-lg); }
 
     nav a {
       color: var(--muted);
@@ -71,7 +80,7 @@
 
     nav a:hover, nav a:focus-visible { color: var(--text); }
 
-    main { padding: 6.5rem 0 4rem; }
+    main { padding-top: var(--space-lg); }
 
     .hero {
       display: grid;
@@ -81,14 +90,25 @@
     }
 
     .eyebrow {
-      display: inline-block;
-      margin-bottom: 1.2rem;
+      display: flex;
+      align-items: center;
+      width: fit-content;
+      margin-bottom: var(--space-lg);
       padding: 0.3rem 0.65rem;
       border: 1px solid #32443a;
       border-radius: 999px;
       color: var(--green);
       background: rgba(102, 226, 138, 0.06);
       font-size: 0.75rem;
+    }
+
+    .brand::before,
+    .brand > span,
+    .eyebrow > span,
+    .terminal-command > span {
+      line-height: 1;
+      text-box-edge: cap alphabetic;
+      text-box-trim: trim-both;
     }
 
     h1 {
@@ -98,11 +118,13 @@
       font-size: clamp(3.2rem, 7vw, 6rem);
       line-height: 0.95;
       letter-spacing: -0.07em;
+      text-box-edge: cap alphabetic;
+      text-box-trim: trim-start;
     }
 
     .lede {
       max-width: 43rem;
-      margin: 1.5rem 0 0;
+      margin: var(--space-lg) 0 0;
       color: var(--muted);
       font-size: 1.02rem;
     }
@@ -110,11 +132,11 @@
     .install {
       display: flex;
       align-items: center;
-      gap: 0.6rem;
+      gap: var(--space-sm);
       width: fit-content;
       max-width: 100%;
-      margin-top: 2rem;
-      padding: 0.72rem 0.9rem;
+      margin-top: var(--space-xl);
+      padding: var(--space-sm) var(--space-md);
       overflow-x: auto;
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -134,8 +156,8 @@
     .actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 1.35rem;
-      margin-top: 1.4rem;
+      gap: var(--space-lg);
+      margin-top: var(--space-lg);
     }
 
     .button {
@@ -240,6 +262,12 @@
       white-space: pre;
     }
 
+    .terminal-command {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.65em;
+    }
+
     .prompt { color: var(--green); }
     .cyan { color: var(--cyan); }
     .yellow { color: var(--yellow); }
@@ -250,7 +278,7 @@
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 1px;
-      margin-top: 7rem;
+      margin-top: var(--space-section);
       overflow: hidden;
       border: 1px solid var(--line);
       border-radius: 10px;
@@ -259,14 +287,14 @@
 
     .feature {
       min-height: 185px;
-      padding: 1.5rem;
+      padding: var(--space-lg);
       background: var(--panel);
     }
 
     .feature .number { color: var(--green); font-size: 0.75rem; }
 
     .feature h2 {
-      margin: 1.9rem 0 0.5rem;
+      margin: var(--space-lg) 0 var(--space-xs);
       font-family: system-ui, sans-serif;
       font-size: 1.15rem;
       letter-spacing: -0.025em;
@@ -279,27 +307,42 @@
       flex-wrap: wrap;
       align-items: center;
       justify-content: center;
-      gap: 0.55rem;
-      margin: 4rem 0 0;
+      gap: var(--space-xs);
+      margin-top: var(--space-xl);
       color: var(--muted);
       font-size: 0.76rem;
     }
 
-    .formats strong { margin-right: 0.35rem; color: var(--text); }
+    .formats strong {
+      margin-right: 0.25rem;
+      color: var(--text);
+      line-height: 1;
+      text-box-edge: text alphabetic;
+      text-box-trim: trim-both;
+    }
 
-    .formats span {
-      padding: 0.3rem 0.55rem;
+    .formats > span {
+      display: inline-grid;
+      place-items: center;
+      height: 2rem;
+      padding: 0 var(--space-sm);
       border: 1px solid var(--line);
       border-radius: 5px;
       background: rgba(255, 255, 255, 0.015);
     }
 
+    .formats > span > span {
+      line-height: 1;
+      text-box-edge: cap alphabetic;
+      text-box-trim: trim-both;
+    }
+
     footer {
       display: flex;
       justify-content: space-between;
-      gap: 1rem;
-      margin-top: 5rem;
-      padding: 1.5rem 0 2.5rem;
+      gap: var(--space-md);
+      margin-top: var(--space-section);
+      padding: var(--space-lg) 0 var(--space-xl);
       border-top: 1px solid var(--line);
       color: var(--muted);
       font-size: 0.76rem;
@@ -308,7 +351,6 @@
     footer a { color: var(--text); text-decoration: none; }
 
     @media (max-width: 800px) {
-      main { padding-top: 4rem; }
       .hero { grid-template-columns: 1fr; }
       h1 { max-width: 9ch; }
       .features { grid-template-columns: 1fr; }
@@ -319,7 +361,6 @@
     @media (max-width: 520px) {
       header { min-height: 62px; }
       nav a:first-child { display: none; }
-      main { padding-top: 3rem; }
       pre { min-height: 270px; }
       footer { flex-direction: column; }
     }
@@ -332,7 +373,7 @@
 <body>
   <div class="shell">
     <header>
-      <a class="brand" href="#">bbcat</a>
+      <a class="brand" href="#"><span>bbcat</span></a>
       <nav aria-label="Primary navigation">
         <a href="https://crates.io/crates/bbcat">crates.io</a>
         <a href="https://github.com/EriksRemess/bbcat">source</a>
@@ -342,7 +383,7 @@
     <main>
       <section class="hero">
         <div>
-          <span class="eyebrow">v<!-- BBCAT_VERSION -->0.1.12</span>
+          <span class="eyebrow"><span>v<!-- BBCAT_VERSION -->0.1.12</span></span>
           <h1>BBS art, right in your terminal.</h1>
           <p class="lede">View classic ANSI, DIZ, ADF, RIPscrip, and XBin artwork as colored UTF-8, Kitty graphics, or a clean PNG export.</p>
 
@@ -361,7 +402,7 @@
             <span class="dot"></span><span class="dot"></span><span class="dot"></span>
             <span class="terminal-title">bbs — 80×25</span>
           </div>
-          <pre><span class="prompt">❯</span> bbcat DEMO.ANS --kitty
+          <pre><span class="terminal-command"><span class="prompt">❯</span><span>bbcat DEMO.ANS --kitty</span></span>
 
 <span class="cyan">  ░▒▓██████╗ ██████╗  ██████╗ █████╗ ████████╗▓▒░</span>
 <span class="cyan">     ██╔══██╗██╔══██╗██╔════╝██╔══██╗╚══██╔══╝</span>
@@ -371,7 +412,7 @@
 <span class="green">     ╚═════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝   ╚═╝</span>
 
 <span class="dim">  ANSI · XBIN · ADF · RIP · CP437</span>
-<span class="prompt">❯</span> <span class="dim">_</span></pre>
+<span class="terminal-command"><span class="prompt">❯</span><span class="dim">_</span></span></pre>
         </div>
       </section>
 
@@ -395,7 +436,7 @@
 
       <div class="formats" aria-label="Supported formats">
         <strong>Reads</strong>
-        <span>.ANS</span><span>.DIZ</span><span>.ASC</span><span>.ADF</span><span>.RIP</span><span>.XB</span>
+        <span><span>.ANS</span></span><span><span>.DIZ</span></span><span><span>.ASC</span></span><span><span>.ADF</span></span><span><span>.RIP</span></span><span><span>.XB</span></span>
       </div>
     </main>
 
