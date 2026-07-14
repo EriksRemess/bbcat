@@ -4,6 +4,8 @@ Dependency-free terminal viewer for CP437 ANSI, DIZ, ADF, RIPscrip, and XBin
 art. It writes colored UTF-8 by default, with optional Kitty graphics and PNG
 output.
 
+Browse and download BBS art packs at [16colo.rs](https://16colo.rs/).
+
 ## Install
 
 ```console
@@ -39,8 +41,9 @@ bbcat --2x --kitty art.ans
 | PNG | `-o FILE`, `--output FILE` | Writes one indexed-color PNG; use `-` to write it to standard output. |
 
 Kitty mode requires terminal stdout and a terminal that answers bbcat's Kitty
-graphics protocol probe. Kitty and Ghostty are supported on Linux. Long images
-are emitted in strips so they remain available in terminal scrollback. Add
+graphics protocol probe. [Kitty](https://sw.kovidgoyal.net/kitty/) and
+[Ghostty](https://ghostty.org/) are supported on Linux. Long images are emitted
+in strips so they remain available in terminal scrollback. Add
 `--fit` to scale the complete image to the terminal width instead of cropping.
 If that would make the image shorter than one terminal row, bbcat reports the
 minimum required terminal width.
