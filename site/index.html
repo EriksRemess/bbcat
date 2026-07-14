@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="bbcat is a terminal viewer for ANSI, DIZ, ADF, RIPscrip, and XBin art.">
+  <title>bbcat — BBS art in your terminal</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0b0f;
+      --panel: #11131a;
+      --line: #282c38;
+      --text: #f2f4f8;
+      --muted: #9ba3b4;
+      --green: #66e28a;
+      --cyan: #63d9e6;
+      --yellow: #f2d96b;
+      --pink: #e578c2;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 80% 10%, rgba(99, 217, 230, 0.08), transparent 28rem),
+        radial-gradient(circle at 15% 30%, rgba(229, 120, 194, 0.07), transparent 24rem),
+        var(--bg);
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      line-height: 1.55;
+    }
+
+    a { color: inherit; }
+
+    .shell {
+      width: min(1080px, calc(100% - 2rem));
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 72px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      color: var(--green);
+      font-size: 1.15rem;
+      font-weight: 800;
+      text-decoration: none;
+      letter-spacing: -0.04em;
+    }
+
+    .brand::before { content: "❯ "; }
+
+    nav { display: flex; gap: 1.25rem; }
+
+    nav a {
+      color: var(--muted);
+      font-size: 0.88rem;
+      text-decoration: none;
+    }
+
+    nav a:hover, nav a:focus-visible { color: var(--text); }
+
+    main { padding: 6.5rem 0 4rem; }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: clamp(2.5rem, 7vw, 6rem);
+      align-items: center;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      margin-bottom: 1.2rem;
+      padding: 0.3rem 0.65rem;
+      border: 1px solid #32443a;
+      border-radius: 999px;
+      color: var(--green);
+      background: rgba(102, 226, 138, 0.06);
+      font-size: 0.75rem;
+    }
+
+    h1 {
+      max-width: 12ch;
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      font-size: clamp(3.2rem, 7vw, 6rem);
+      line-height: 0.95;
+      letter-spacing: -0.07em;
+    }
+
+    .lede {
+      max-width: 43rem;
+      margin: 1.5rem 0 0;
+      color: var(--muted);
+      font-size: 1.02rem;
+    }
+
+    .install {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      width: fit-content;
+      max-width: 100%;
+      margin-top: 2rem;
+      padding: 0.72rem 0.9rem;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #08090c;
+      box-shadow: 0 16px 50px rgba(0, 0, 0, 0.2);
+    }
+
+    .install span {
+      color: var(--green);
+      user-select: none;
+    }
+
+    .install code {
+      white-space: nowrap;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.35rem;
+      margin-top: 1.4rem;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: baseline;
+      padding: 0.2rem 0;
+      border: 0;
+      color: var(--text);
+      font-size: 0.82rem;
+      line-height: 1.4;
+      text-decoration: none;
+    }
+
+    .button::before,
+    .button::after {
+      color: var(--green);
+      font-weight: 800;
+    }
+
+    .button::before { margin-right: 0.5rem; content: "["; }
+    .button::after { margin-left: 0.5rem; content: "]"; }
+
+    .button.primary { font-weight: 800; }
+
+    .button:hover,
+    .button:focus-visible { color: var(--green); }
+
+    .source-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .source-label svg {
+      width: 1em;
+      height: 1em;
+      flex: none;
+      fill: currentColor;
+    }
+
+    .source-label > span {
+      line-height: 1;
+      text-box-edge: cap alphabetic;
+      text-box-trim: trim-both;
+    }
+
+    .terminal {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid #343846;
+      border-radius: 12px;
+      background: #050608;
+      box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+    }
+
+    .terminal::after {
+      position: absolute;
+      inset: 34px 0 0;
+      content: "";
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0.018) 0,
+        rgba(255, 255, 255, 0.018) 1px,
+        transparent 1px,
+        transparent 4px
+      );
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      height: 34px;
+      padding: 0 12px;
+      border-bottom: 1px solid #20232c;
+      background: #151720;
+    }
+
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot:nth-child(1) { background: #f06a6a; }
+    .dot:nth-child(2) { background: #e7c85d; }
+    .dot:nth-child(3) { background: #66d27f; }
+
+    .terminal-title {
+      margin-left: auto;
+      color: #747c8d;
+      font-size: 0.7rem;
+      line-height: 1;
+      text-box-edge: cap alphabetic;
+      text-box-trim: trim-both;
+    }
+
+    pre {
+      min-height: 330px;
+      margin: 0;
+      padding: clamp(1rem, 3vw, 1.8rem);
+      overflow: hidden;
+      font: inherit;
+      font-size: clamp(0.63rem, 1.35vw, 0.9rem);
+      line-height: 1.35;
+      white-space: pre;
+    }
+
+    .prompt { color: var(--green); }
+    .cyan { color: var(--cyan); }
+    .yellow { color: var(--yellow); }
+    .pink { color: var(--pink); }
+    .dim { color: #697082; }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      margin-top: 7rem;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--line);
+    }
+
+    .feature {
+      min-height: 185px;
+      padding: 1.5rem;
+      background: var(--panel);
+    }
+
+    .feature .number { color: var(--green); font-size: 0.75rem; }
+
+    .feature h2 {
+      margin: 1.9rem 0 0.5rem;
+      font-family: system-ui, sans-serif;
+      font-size: 1.15rem;
+      letter-spacing: -0.025em;
+    }
+
+    .feature p { margin: 0; color: var(--muted); font-size: 0.86rem; }
+
+    .formats {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      gap: 0.55rem;
+      margin: 4rem 0 0;
+      color: var(--muted);
+      font-size: 0.76rem;
+    }
+
+    .formats strong { margin-right: 0.35rem; color: var(--text); }
+
+    .formats span {
+      padding: 0.3rem 0.55rem;
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-top: 5rem;
+      padding: 1.5rem 0 2.5rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.76rem;
+    }
+
+    footer a { color: var(--text); text-decoration: none; }
+
+    @media (max-width: 800px) {
+      main { padding-top: 4rem; }
+      .hero { grid-template-columns: 1fr; }
+      h1 { max-width: 9ch; }
+      .features { grid-template-columns: 1fr; }
+      .feature { min-height: auto; }
+      .feature h2 { margin-top: 1rem; }
+    }
+
+    @media (max-width: 520px) {
+      header { min-height: 62px; }
+      nav a:first-child { display: none; }
+      main { padding-top: 3rem; }
+      pre { min-height: 270px; }
+      footer { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <a class="brand" href="#">bbcat</a>
+      <nav aria-label="Primary navigation">
+        <a href="https://crates.io/crates/bbcat">crates.io</a>
+        <a href="https://github.com/EriksRemess/bbcat">source</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div>
+          <span class="eyebrow">v<!-- BBCAT_VERSION -->0.1.12</span>
+          <h1>BBS art, right in your terminal.</h1>
+          <p class="lede">View classic ANSI, DIZ, ADF, RIPscrip, and XBin artwork as colored UTF-8, Kitty graphics, or a clean PNG export.</p>
+
+          <div class="install" aria-label="Installation command">
+            <span aria-hidden="true">$</span><code>cargo install bbcat</code>
+          </div>
+
+          <div class="actions">
+            <a class="button primary" href="https://github.com/EriksRemess/bbcat"><span>view source</span></a>
+            <a class="button" href="https://16colo.rs/"><span>find artwork</span></a>
+          </div>
+        </div>
+
+        <div class="terminal" aria-label="bbcat terminal preview">
+          <div class="terminal-bar">
+            <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+            <span class="terminal-title">bbs — 80×25</span>
+          </div>
+          <pre><span class="prompt">❯</span> bbcat DEMO.ANS --kitty
+
+<span class="cyan">  ░▒▓██████╗ ██████╗  ██████╗ █████╗ ████████╗▓▒░</span>
+<span class="cyan">     ██╔══██╗██╔══██╗██╔════╝██╔══██╗╚══██╔══╝</span>
+<span class="pink">     ██████╔╝██████╔╝██║     ███████║   ██║</span>
+<span class="yellow">     ██╔══██╗██╔══██╗██║     ██╔══██║   ██║</span>
+<span class="green">     ██████╔╝██████╔╝╚██████╗██║  ██║   ██║</span>
+<span class="green">     ╚═════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝   ╚═╝</span>
+
+<span class="dim">  ANSI · XBIN · ADF · RIP · CP437</span>
+<span class="prompt">❯</span> <span class="dim">_</span></pre>
+        </div>
+      </section>
+
+      <section class="features" aria-label="Output modes">
+        <article class="feature">
+          <span class="number">01 / DEFAULT</span>
+          <h2>Colored UTF-8</h2>
+          <p>Pipe it, page it, or print it directly. CP437 becomes Unicode with true-color ANSI output.</p>
+        </article>
+        <article class="feature">
+          <span class="number">02 / PIXEL PERFECT</span>
+          <h2>Kitty graphics</h2>
+          <p>Preserve bitmap fonts and palettes in <a href="https://sw.kovidgoyal.net/kitty/">Kitty</a> and <a href="https://ghostty.org/">Ghostty</a>.</p>
+        </article>
+        <article class="feature">
+          <span class="number">03 / PORTABLE</span>
+          <h2>PNG export</h2>
+          <p>Turn supported BBS formats into indexed-color PNG files without pulling in a runtime dependency.</p>
+        </article>
+      </section>
+
+      <div class="formats" aria-label="Supported formats">
+        <strong>Reads</strong>
+        <span>.ANS</span><span>.DIZ</span><span>.ASC</span><span>.ADF</span><span>.RIP</span><span>.XB</span>
+      </div>
+    </main>
+
+    <footer>
+      <span>bbcat · BBS art viewer</span>
+      <span>
+        <a class="source-label" href="https://github.com/EriksRemess/bbcat" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 .2a8 8 0 0 0-2.5 15.6c.4.1.5-.2.5-.4v-1.5c-2 .4-2.5-.9-2.5-.9-.3-.8-.8-1-1-1.1-.7-.5.1-.5.1-.5.7.1 1.2.8 1.2.8.7 1.2 1.8.9 2.2.7.1-.5.3-.9.5-1.1-1.6-.2-3.3-.8-3.3-3.6 0-.9.3-1.6.8-2.2-.1-.2-.4-1 .1-2.2 0 0 .7-.2 2.2.8a7.6 7.6 0 0 1 4 0c1.5-1 2.2-.8 2.2-.8.5 1.2.2 2 .1 2.2.5.6.8 1.3.8 2.2 0 2.8-1.7 3.4-3.3 3.6.3.2.5.7.5 1.3v2c0 .2.1.5.5.4A8 8 0 0 0 8 .2Z" />
+          </svg>
+          <span>EriksRemess/bbcat</span>
+        </a>
+      </span>
+    </footer>
+  </div>
+</body>
+</html>
