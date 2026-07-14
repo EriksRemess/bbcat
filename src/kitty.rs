@@ -200,8 +200,9 @@ fn write_screen_inner<W: Write>(
     if screen.raster.is_some() {
         let image = encode_image(screen, 0, screen.height, scale, width_mode)?;
         let columns = output_columns(screen.width, scale, width_mode)?;
-        write_image(output, &image, columns, None)?;
-        output.write_all(b"\r")?;
+        let placement_rows = image_rows(&image)?;
+        write_image(output, &image, columns, placement_rows)?;
+        advance_rows(output, placement_rows)?;
         return output.flush();
     }
     let chunk_lines = if matches!(width_mode, WidthMode::Fit(_)) {
@@ -213,27 +214,9 @@ fn write_screen_inner<W: Write>(
         let rows = chunk_lines.min(screen.height - first_row);
         let image = encode_image(screen, first_row, rows, scale, width_mode)?;
         let columns = output_columns(screen.width, scale, width_mode)?;
-        let placement_rows = if delay.is_some() {
-            Some(
-                rows.checked_mul(screen.glyph_height)
-                    .and_then(|height| height.checked_mul(scale))
-                    .ok_or_else(|| {
-                        io::Error::new(io::ErrorKind::InvalidInput, "output dimensions overflow")
-                    })?
-                    .div_ceil(16)
-                    .max(1),
-            )
-        } else {
-            None
-        };
+        let placement_rows = image_rows(&image)?;
         write_image(output, &image, columns, placement_rows)?;
-        if let Some(placement_rows) = placement_rows {
-            for _ in 0..placement_rows {
-                output.write_all(b"\r\n")?;
-            }
-        } else {
-            output.write_all(b"\r")?;
-        }
+        advance_rows(output, placement_rows)?;
         if first_row + rows < screen.height
             && let Some(delay) = delay
         {
@@ -301,6 +284,22 @@ fn dimension_error() -> io::Error {
     io::Error::new(io::ErrorKind::InvalidInput, "output dimensions overflow")
 }
 
+fn image_rows(image: &[u8]) -> io::Result<usize> {
+    let height = image
+        .get(20..24)
+        .and_then(|bytes| bytes.try_into().ok())
+        .map(u32::from_be_bytes)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid PNG dimensions"))?;
+    Ok((height as usize).div_ceil(16).max(1))
+}
+
+fn advance_rows<W: Write>(output: &mut W, rows: usize) -> io::Result<()> {
+    for _ in 0..rows {
+        output.write_all(b"\r\n")?;
+    }
+    Ok(())
+}
+
 fn output_columns(width: usize, scale: usize, mode: WidthMode) -> io::Result<usize> {
     let columns = scaled(width, scale)?;
     Ok(match mode {
@@ -337,20 +336,16 @@ fn write_image<W: Write>(
     output: &mut W,
     image: &[u8],
     columns: usize,
-    rows: Option<usize>,
+    rows: usize,
 ) -> io::Result<()> {
     let chunks = image.len().div_ceil(INPUT_CHUNK);
     for (index, bytes) in image.chunks(INPUT_CHUNK).enumerate() {
         let more = u8::from(index + 1 < chunks);
         if index == 0 {
-            if let Some(rows) = rows {
-                write!(
-                    output,
-                    "\x1b_Ga=T,f=100,c={columns},r={rows},C=1,q=2,m={more};"
-                )?;
-            } else {
-                write!(output, "\x1b_Ga=T,f=100,c={columns},q=2,m={more};")?;
-            }
+            write!(
+                output,
+                "\x1b_Ga=T,f=100,c={columns},r={rows},C=1,q=2,m={more};"
+            )?;
         } else {
             write!(output, "\x1b_Gq=2,m={more};")?;
         }
@@ -413,8 +408,8 @@ mod tests {
         };
         let mut output = Vec::new();
         write_screen(&mut output, &screen, 24).unwrap();
-        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,q=2,m=0;"));
-        assert!(output.ends_with(b"\x1b\\\r"));
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,r=1,C=1,q=2,m=0;"));
+        assert!(output.ends_with(b"\x1b\\\r\n"));
     }
 
     #[test]
@@ -468,8 +463,8 @@ mod tests {
         };
         let mut output = Vec::new();
         write_screen_scaled(&mut output, &screen, 24, 2).unwrap();
-        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=2,q=2,m=0;"));
-        assert!(output.ends_with(b"\x1b\\\r"));
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=2,r=2,C=1,q=2,m=0;"));
+        assert!(output.ends_with(b"\x1b\\\r\n\r\n"));
     }
 
     #[test]
@@ -486,7 +481,7 @@ mod tests {
         };
         let mut output = Vec::new();
         write_screen_scaled_fit(&mut output, &screen, 24, 2, 3).unwrap();
-        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=3,q=2,m="));
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=3,r=2,C=1,q=2,m="));
     }
 
     #[test]
@@ -503,7 +498,7 @@ mod tests {
         };
         let mut output = Vec::new();
         write_screen_scaled_cropped(&mut output, &screen, 24, 1, 3).unwrap();
-        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=3,q=2,m="));
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=3,r=1,C=1,q=2,m="));
     }
 
     #[test]
@@ -540,8 +535,14 @@ mod tests {
         };
         let mut output = Vec::new();
         write_screen(&mut output, &screen, 24).unwrap();
-        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,q=2,m=0;"));
-        assert!(!output.windows(3).any(|window| window == b",r="));
-        assert!(output.ends_with(b"\x1b\\\r"));
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=1,r=10,C=1,q=2,m=0;"));
+        assert!(output.ends_with(b"\r\n"));
+        assert_eq!(
+            output
+                .windows(2)
+                .filter(|window| *window == b"\r\n")
+                .count(),
+            10
+        );
     }
 }
