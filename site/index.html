@@ -58,6 +58,12 @@
       border-bottom: 1px solid var(--line);
     }
 
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+    }
+
     .brand {
       display: inline-flex;
       align-items: center;
@@ -90,11 +96,10 @@
       align-items: center;
     }
 
-    .eyebrow {
+    .version {
       display: flex;
       align-items: center;
       width: fit-content;
-      margin-bottom: var(--space-lg);
       padding: 0.3rem 0.65rem;
       border: 1px solid #32443a;
       border-radius: 999px;
@@ -105,7 +110,7 @@
 
     .brand::before,
     .brand > span,
-    .eyebrow > span,
+    .version > span,
     .terminal-command > span {
       line-height: 1;
       text-box-edge: cap alphabetic;
@@ -393,7 +398,10 @@
 <body>
   <div class="shell">
     <header>
-      <a class="brand" href="/"><span>bbcat</span></a>
+      <div class="header-brand">
+        <a class="brand" href="/"><span>bbcat</span></a>
+        <span class="version"><span>v<!-- BBCAT_VERSION -->0.1.12</span></span>
+      </div>
       <nav aria-label="Primary navigation">
         <a href="https://crates.io/crates/bbcat">crates.io</a>
         <a href="https://github.com/EriksRemess/bbcat">source</a>
@@ -403,7 +411,6 @@
     <main>
       <section class="hero">
         <div>
-          <span class="eyebrow"><span>v<!-- BBCAT_VERSION -->0.1.12</span></span>
           <h1>BBS art, right in your terminal.</h1>
           <p class="lede">View classic ANSI, DIZ, ADF, RIPscrip, and XBin artwork as colored UTF-8, Kitty graphics, or a clean PNG export.</p>
 
