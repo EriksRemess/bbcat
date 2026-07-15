@@ -95,6 +95,11 @@ mod unix {
     }
 
     pub fn supports_kitty() -> Result<bool, String> {
+        #[cfg(target_os = "macos")]
+        if std::env::var("TERM_PROGRAM").as_deref() == Ok("Apple_Terminal") {
+            return Ok(false);
+        }
+
         let mut tty = OpenOptions::new()
             .read(true)
             .write(true)

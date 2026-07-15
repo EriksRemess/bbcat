@@ -42,11 +42,12 @@ bbcat --2x --kitty art.ans
 
 Kitty mode requires terminal stdout and a terminal that answers bbcat's Kitty
 graphics protocol probe. [Kitty](https://sw.kovidgoyal.net/kitty/) and
-[Ghostty](https://ghostty.org/) are supported on Linux and macOS. Long images
-are emitted in strips so they remain available in terminal scrollback. Add
-`--fit` to scale the complete image to the terminal width instead of cropping.
-If that would make the image shorter than one terminal row, bbcat reports the
-minimum required terminal width.
+[Ghostty](https://ghostty.org/) are supported on Linux and macOS, along with
+[iTerm2](https://iterm2.com/) on macOS. Long images are emitted in strips so
+they remain available in terminal scrollback. Add `--fit` to scale the complete
+image to the terminal width instead of cropping. If that would make the image
+shorter than one terminal row, bbcat reports the minimum required terminal
+width.
 
 PNG mode requires exactly one input file. Use `--output -` to pipe or redirect
 the PNG from standard output. PNG mode cannot be combined with `--kitty`,
