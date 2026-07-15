@@ -1,7 +1,17 @@
+//! ANSI and plain DOS text decoding.
+//!
+//! ANSI art is a byte stream played into a virtual text terminal. Printable
+//! bytes become CP437 character cells, while escape sequences move the cursor,
+//! erase cells, or change the active colors. A DIZ/plain-text file follows the
+//! same path but normally contains no escape sequences.
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Cell {
+    /// CP437 byte value, or 0..=511 for an XBin font with 512 glyphs.
     pub character: u16,
+    /// Index into the screen's 16-color palette.
     pub foreground: u8,
+    /// Index into the screen's 16-color palette.
     pub background: u8,
 }
 
@@ -17,9 +27,12 @@ impl Default for Cell {
 
 #[derive(Clone, Debug)]
 pub struct Screen {
+    /// Character-grid dimensions used by text formats and terminal placement.
     pub width: usize,
     pub height: usize,
     pub cells: Vec<Cell>,
+    // Graphical writers use these format-specific additions when the default
+    // 8x16 VGA font and palette are not sufficient.
     pub(crate) glyph_height: usize,
     pub(crate) font: Option<Vec<u8>>,
     pub(crate) palette: Option<[[u8; 3]; 16]>,
@@ -66,6 +79,9 @@ struct Parser {
     style: Style,
     ice_colors: bool,
     auto_wrap: bool,
+    // Real terminals defer wrapping until the next printable byte. Keeping this
+    // sentinel prevents a CR/LF immediately after the last column from wrapping
+    // once implicitly and once explicitly.
     pending_wrap: bool,
     max_written_row: Option<usize>,
 }
@@ -76,6 +92,8 @@ pub fn parse(
     declared_height: Option<usize>,
     ice_colors: bool,
 ) -> Result<Screen, String> {
+    // A SAUCE height is useful for preserving intentionally blank rows. Without
+    // one, the backing grid grows only when cursor movement or output reaches it.
     let initial_cells = width
         .checked_mul(declared_height.unwrap_or(1).max(1))
         .ok_or_else(canvas_too_large)?;
@@ -161,6 +179,9 @@ impl Parser {
             self.pending_wrap = false;
         }
         self.ensure_row(self.y)?;
+        // ANSI stores effects as state, but Screen stores the final color pair
+        // on every cell. In iCE mode the blink bit is repurposed as background
+        // intensity, matching how late DOS art commonly used 16 backgrounds.
         let (mut foreground, mut background) = (self.style.foreground, self.style.background);
         if self.style.bold && foreground < 8 {
             foreground += 8;
@@ -192,6 +213,8 @@ impl Parser {
         }
         match bytes[1] {
             b'[' => {
+                // A Control Sequence Introducer ends at its first final byte
+                // (0x40..=0x7e); bytes before it are parameters/intermediates.
                 let Some(relative_end) = bytes[2..]
                     .iter()
                     .position(|byte| (0x40..=0x7e).contains(byte))
@@ -225,6 +248,8 @@ impl Parser {
     fn csi(&mut self, raw: &[u8], command: u8) {
         let private = raw.first() == Some(&b'?');
         let raw = if private { &raw[1..] } else { raw };
+        // Parameters are decimal and semicolon-separated. Empty/default values
+        // are interpreted by the individual command below.
         let parameters: Vec<usize> = if raw.is_empty() {
             Vec::new()
         } else {
@@ -291,6 +316,8 @@ impl Parser {
     }
 
     fn sgr(&mut self, parameters: &[usize]) {
+        // SGR (the `m` command) changes style only; a later printable byte turns
+        // that style into the concrete foreground/background stored in a Cell.
         let parameters = if parameters.is_empty() {
             &[0][..]
         } else {

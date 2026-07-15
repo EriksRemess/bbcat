@@ -1,3 +1,10 @@
+//! RIPscrip level-0/level-1 rendering.
+//!
+//! RIPscrip is a drawing-command stream rather than a character-grid format.
+//! Commands begin with `|`, use compact fixed-width base-36 numbers, and mutate a
+//! 640x350, 16-color BGI-style canvas. The finished canvas is stored in
+//! [`Screen::raster`](crate::Screen), which the PNG and Kitty paths can display.
+
 use std::f64::consts::PI;
 
 use crate::{
@@ -80,6 +87,8 @@ impl<'a> Parser<'a> {
     }
 
     fn run(&mut self) -> Result<(), String> {
+        // Ordinary bytes before/between commands are host-terminal text and are
+        // ignored. `|1` introduces a two-byte level-one opcode; others are one.
         while self.index < self.data.len() {
             if self.data[self.index] != b'|' {
                 self.index += 1;
@@ -99,6 +108,8 @@ impl<'a> Parser<'a> {
                 ));
             }
 
+            // Each command decodes its fixed set of arguments, then delegates
+            // drawing to Canvas. Parser owns syntax; Canvas owns graphics state.
             match (first, second) {
                 (b'#', None) => {
                     self.terminated = true;
@@ -301,6 +312,8 @@ impl<'a> Parser<'a> {
             .get(self.index)
             .ok_or_else(|| format!("truncated RIPscrip {field}"))?;
         self.index += 1;
+        // A backslash escapes physical CR/LF line wrapping, allowing one logical
+        // RIPscrip command to continue on the next line of the carrier file.
         if byte == b'\\' {
             byte = *self
                 .data
@@ -330,6 +343,7 @@ impl<'a> Parser<'a> {
     }
 
     fn word(&mut self, field: &str) -> Result<u16, String> {
+        // Two base-36 digits encode 0..=1295; four digits form an "integer".
         Ok(self.number(field)? * 36 + self.number(field)?)
     }
 
@@ -380,6 +394,8 @@ struct Capture {
 }
 
 struct Canvas {
+    // Pixels contain palette indices, not RGB. Drawing state mirrors Borland BGI:
+    // active line/fill colors and patterns, raster operation, and selected font.
     pixels: Vec<u8>,
     palette: [[u8; 3]; 16],
     color: u8,
@@ -445,6 +461,8 @@ impl Canvas {
         }
         let pixel = &mut self.pixels[y as usize * WIDTH + x as usize];
         let color = color & 0x0f;
+        // RIPscrip write modes are classic raster operations. They make capture,
+        // paste, and overlapping primitives composable without true-color math.
         *pixel = match mode {
             0 => color,
             1 => *pixel ^ color,
@@ -466,6 +484,9 @@ impl Canvas {
     }
 
     fn line(&mut self, start: (i32, i32), end: (i32, i32)) {
+        // This is the BGI-compatible integer line rasterizer. It advances along
+        // the dominant axis while distributing error across the minor axis, and
+        // fill_x/fill_y apply thickness plus the selected 16-bit dash pattern.
         let y_delta = (end.1 - start.1).abs();
         let x_delta = (end.0 - start.0).abs();
         let mut offset = 0;
@@ -944,6 +965,8 @@ impl Canvas {
     }
 
     fn text(&mut self, point: (i32, i32), text: &[u8]) {
+        // Text is graphics in RIPscrip: glyphs are painted into the pixel canvas.
+        // Font zero plots bitmap bits; the other fonts replay scaled vector strokes.
         let old_pattern = self.line_pattern;
         let old_thickness = self.line_thickness;
         self.line_pattern = 0xffff;

@@ -1,3 +1,9 @@
+//! Bitmap and vector-stroke fonts used by the RIPscrip renderer.
+//!
+//! RIPscrip font zero uses the 8x8 bitmap table. Fonts 1 through 10 are made of
+//! move/line commands with per-glyph advance widths, allowing the Canvas to draw
+//! them with the same line primitive used by the rest of the vector format.
+
 use std::sync::OnceLock;
 
 use crate::font;
@@ -79,6 +85,9 @@ fn parse(data: &[u8]) -> Result<Vec<StrokeFont>, String> {
             }
             let mut strokes = Vec::with_capacity(point_count);
             for _ in 0..point_count {
+                // The high x bit distinguishes a pen-up move from a visible
+                // line; the remaining seven bits are a signed position biased
+                // by 64. Y is stored directly as a signed byte.
                 let encoded_x = byte(data, &mut position)?;
                 let y = i32::from(byte(data, &mut position)? as i8);
                 strokes.push(Stroke {

@@ -1,3 +1,10 @@
+//! Dependency-free indexed PNG creation.
+//!
+//! Character screens are rasterized through an 8-pixel-wide bitmap font. Each
+//! set glyph bit selects the cell foreground; each clear bit selects its
+//! background. RIPscrip already supplies indexed pixels and skips that step.
+//! Both paths produce a 4-bit indexed PNG with a 16-color palette.
+
 use crate::{Screen, font};
 
 pub const VGA_PALETTE: [[u8; 3]; 16] = [
@@ -88,6 +95,8 @@ pub fn encode_screen_scaled(
                 for cell in
                     &screen.cells[character_row * screen.width..(character_row + 1) * screen.width]
                 {
+                    // A font is stored glyph-major: `glyph_height` bytes per
+                    // character, with one byte holding each eight-pixel row.
                     let glyph = usize::from(cell.character)
                         .checked_mul(screen.glyph_height)
                         .and_then(|offset| offset.checked_add(glyph_row))
@@ -113,6 +122,8 @@ pub fn encode_screen_scaled(
         }
     }
 
+    // PNG is a signature followed by length/type/data/CRC chunks. IHDR declares
+    // 4-bit indexed color, PLTE supplies RGB values, and IDAT holds scanlines.
     let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
     let mut ihdr = Vec::with_capacity(13);
     ihdr.extend_from_slice(&(width as u32).to_be_bytes());
@@ -411,6 +422,7 @@ fn encode_indexed_scaled(
 }
 
 fn push_color(pixels: &mut Vec<u8>, high_nibble: &mut Option<u8>, color: u8) {
+    // At four bits per pixel, two palette indices share each scanline byte.
     if let Some(high) = high_nibble.take() {
         pixels.push((high << 4) | color);
     } else {
@@ -419,6 +431,8 @@ fn push_color(pixels: &mut Vec<u8>, high_nibble: &mut Option<u8>, color: u8) {
 }
 
 fn zlib_store(data: &[u8]) -> Vec<u8> {
+    // IDAT requires a zlib stream. DEFLATE "stored" blocks add framing and
+    // checksums without compression, keeping this encoder dependency-free.
     let mut output = Vec::with_capacity(data.len() + data.len() / 65_535 * 5 + 11);
     output.extend_from_slice(&[0x78, 0x01]);
     if data.is_empty() {
@@ -447,6 +461,7 @@ fn adler32(data: &[u8]) -> u32 {
 }
 
 fn chunk(output: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+    // The PNG CRC covers the four-byte chunk type and its data, but not length.
     output.extend_from_slice(&(data.len() as u32).to_be_bytes());
     output.extend_from_slice(kind);
     output.extend_from_slice(data);

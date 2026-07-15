@@ -1,3 +1,10 @@
+//! UTF-8 terminal output for character-based art.
+//!
+//! Each CP437 cell becomes its Unicode equivalent, preceded by a true-color ANSI
+//! escape whenever its foreground/background pair changes. Embedded fonts and
+//! 512-glyph XBin screens cannot be represented faithfully as Unicode, and
+//! RIPscrip has no character cells at all, so those require graphical output.
+
 use std::{
     io::{self, Write},
     thread,
@@ -117,6 +124,8 @@ fn write_screen_inner<W: Write>(
         for cell in row.iter().take(columns) {
             let colors = (cell.foreground & 0x0f, cell.background & 0x0f);
             if active_colors != Some(colors) {
+                // Emit 24-bit SGR colors only when the pair changes, rather than
+                // repeating an escape sequence before every character.
                 let foreground = palette[usize::from(colors.0)];
                 let background = palette[usize::from(colors.1)];
                 write!(
@@ -131,6 +140,8 @@ fn write_screen_inner<W: Write>(
                 )?;
                 active_colors = Some(colors);
             }
+            // CP437 is a glyph table, not UTF-8-compatible text. Translate the
+            // byte through the explicit table above before encoding as UTF-8.
             let mut encoded = [0_u8; 4];
             let character = CP437[usize::from(cell.character)].encode_utf8(&mut encoded);
             output.write_all(character.as_bytes())?;

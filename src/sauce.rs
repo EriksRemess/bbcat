@@ -1,3 +1,9 @@
+//! SAUCE metadata trailer parsing.
+//!
+//! SAUCE appends a fixed 128-byte record to artwork rather than wrapping it in a
+//! container. The record identifies itself with `SAUCE00`, reports where the art
+//! bytes end, and may provide dimensions, iCE-color mode, and a font name.
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Sauce {
     pub title: String,
@@ -13,6 +19,7 @@ pub struct Sauce {
 
 impl Sauce {
     pub fn parse(data: &[u8]) -> Option<Self> {
+        // The signature is meaningful only exactly 128 bytes from EOF.
         let start = data.len().checked_sub(128)?;
         let record = &data[start..];
         if &record[..7] != b"SAUCE00" {
@@ -20,6 +27,8 @@ impl Sauce {
         }
 
         let reported_len = u32::from_le_bytes(record[90..94].try_into().ok()?) as usize;
+        // Broken producers sometimes report a size beyond the trailer. Clamp to
+        // the physical trailer boundary so metadata can never become art data.
         let content_len = if reported_len <= start {
             reported_len
         } else {

@@ -1,3 +1,10 @@
+//! ArtWorx ADF decoding.
+//!
+//! An ADF is laid out as a version byte, a 64-entry RGB palette (three 6-bit
+//! components each), a complete 256-glyph 8x16 bitmap font, then an 80-column
+//! stream of `(character, attribute)` pairs. The attribute's low nibble is the
+//! foreground color and its high nibble is the background color.
+
 use crate::ansi::{Cell, MAX_CELLS, Screen};
 
 const VERSION_LENGTH: usize = 1;
@@ -6,6 +13,8 @@ const FONT_LENGTH: usize = 256 * 16;
 const HEADER_LENGTH: usize = VERSION_LENGTH + PALETTE_LENGTH + FONT_LENGTH;
 const WIDTH: usize = 80;
 const ROW_LENGTH: usize = WIDTH * 2;
+// ADF stores the whole 64-color VGA DAC. These are the conventional 16 entries
+// selected by ArtWorx for text attributes.
 const COLOR_INDICES: [usize; 16] = [0, 1, 2, 3, 4, 5, 20, 7, 56, 57, 58, 59, 60, 61, 62, 63];
 
 pub fn is_adf(data: &[u8]) -> bool {
@@ -42,6 +51,8 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
     for (color, &index) in palette.iter_mut().zip(&COLOR_INDICES) {
         let offset = index * 3;
         for (output, &component) in color.iter_mut().zip(&palette_data[offset..offset + 3]) {
+            // Repeat the high bits so the full 0..=63 DAC range maps exactly to
+            // 0..=255 instead of topping out at 252.
             *output = (component << 2) | (component >> 4);
         }
     }
@@ -65,6 +76,7 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
             "ADF canvas exceeds the {MAX_CELLS} cell safety limit"
         ));
     }
+    // DOS text memory uses one character byte followed by one packed color byte.
     let cells = screen_data
         .chunks_exact(2)
         .map(|pair| Cell {

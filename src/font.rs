@@ -1,3 +1,9 @@
+//! Embedded bitmap fonts used while turning character cells into pixels.
+//!
+//! Each glyph is eight pixels wide and stored as one byte per scanline, most
+//! significant bit first. The base64 source files keep binary font data easy to
+//! include in the crate; [`OnceLock`] decodes each font only on first use.
+
 use std::sync::OnceLock;
 
 const ENCODED: &str = include_str!("font_data.b64");

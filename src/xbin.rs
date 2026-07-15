@@ -1,3 +1,9 @@
+//! XBin decoding.
+//!
+//! XBin starts with `XBIN\x1a`, little-endian width/height, glyph height, and a
+//! flags byte. Optional palette and font blocks follow the header, followed by
+//! either raw `(character, attribute)` pairs or XBin's small run-length format.
+
 use crate::{
     ansi::{Cell, MAX_CELLS, Screen},
     png::VGA_PALETTE,
@@ -53,6 +59,7 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
         return Err(format!("unsupported XBin flags 0x{:02x}", flags & 0xe0));
     }
 
+    // Optional sections occur in a fixed order, so one cursor can walk the file.
     let mut offset = HEADER_LENGTH;
     let palette = if flags & FLAG_PALETTE != 0 {
         let bytes = take(data, &mut offset, PALETTE_LENGTH, "palette")?;
@@ -64,6 +71,8 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
                         "invalid XBin palette component {value}; expected a 6-bit value"
                     ));
                 }
+                // XBin palette components are VGA DAC values (6-bit), expanded
+                // here to the 8-bit RGB components used by the output backends.
                 *component = (value << 2) | (value >> 4);
             }
         }
@@ -110,6 +119,9 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
     let cells = pairs
         .into_iter()
         .map(|(character, attribute)| {
+            // In 512-glyph mode attribute bit 3 also selects the upper font bank.
+            // Attributes are split into low/high color nibbles; non-blink mode
+            // makes all four high bits available for background intensity.
             let high_font = font_512 && attribute & 0x08 != 0;
             Cell {
                 character: u16::from(character) + if high_font { 256 } else { 0 },
@@ -184,6 +196,9 @@ fn decompress(data: &[u8], cell_count: usize) -> Result<Vec<(u8, u8)>, String> {
             return Err("XBin compressed run exceeds the declared dimensions".to_owned());
         }
 
+        // The low six bits encode run length minus one. The high two bits choose
+        // which half of a character/attribute pair is shared by the run:
+        // 00 neither, 01 character, 10 attribute, 11 both.
         match control & 0xc0 {
             0x00 => {
                 for _ in 0..count {

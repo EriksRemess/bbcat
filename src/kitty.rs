@@ -1,3 +1,10 @@
+//! Kitty graphics protocol output.
+//!
+//! Kitty does not receive the character grid directly. This module first asks
+//! the PNG backend for an image, base64-encodes that PNG, and wraps it in Kitty
+//! APC escape sequences. Large artwork is split both vertically (separate PNGs)
+//! and into protocol-sized transport chunks.
+
 use std::{
     io::{self, Write},
     thread,
@@ -10,8 +17,11 @@ const INPUT_CHUNK: usize = 3072;
 
 #[derive(Clone, Copy)]
 enum WidthMode {
+    /// Preserve all pixels and their requested scale.
     Full,
+    /// Keep the height but discard pixels past the terminal's right edge.
     Crop(usize),
+    /// Resize both axes so the complete image preserves its aspect ratio.
     Fit(usize),
 }
 
@@ -197,6 +207,8 @@ fn write_screen_inner<W: Write>(
         let rows = if delay.is_some() { 1 } else { screen.height };
         validate_fit_height(screen, scale, columns, rows)?;
     }
+    // RIPscrip is already one indivisible raster, unlike character rows that can
+    // be rendered as several shorter images to avoid tall terminal placements.
     if screen.raster.is_some() {
         let image = encode_image(screen, 0, screen.height, scale, width_mode)?;
         let columns = output_columns(screen.width, scale, width_mode)?;
@@ -205,6 +217,8 @@ fn write_screen_inner<W: Write>(
         advance_rows(output, placement_rows)?;
         return output.flush();
     }
+    // Fit needs the whole image to calculate one aspect ratio. Other modes can
+    // limit each PNG to a manageable number of character rows.
     let chunk_lines = if matches!(width_mode, WidthMode::Fit(_)) {
         screen.height
     } else {
@@ -285,6 +299,8 @@ fn dimension_error() -> io::Error {
 }
 
 fn image_rows(image: &[u8]) -> io::Result<usize> {
+    // IHDR starts at byte 8; its big-endian height occupies bytes 20..24. Kitty
+    // placement uses terminal rows, approximated here as 16 image pixels each.
     let height = image
         .get(20..24)
         .and_then(|bytes| bytes.try_into().ok())
@@ -338,6 +354,9 @@ fn write_image<W: Write>(
     columns: usize,
     rows: usize,
 ) -> io::Result<()> {
+    // Kitty's direct-data transmission (`a=T`, `f=100`) carries a PNG. `m=1`
+    // announces another transport chunk and `m=0` finishes the image. APC is
+    // introduced by ESC _ G and terminated by ST (ESC backslash).
     let chunks = image.len().div_ceil(INPUT_CHUNK);
     for (index, bytes) in image.chunks(INPUT_CHUNK).enumerate() {
         let more = u8::from(index + 1 < chunks);

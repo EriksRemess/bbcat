@@ -1,3 +1,10 @@
+//! Format detection and the common rendering model.
+//!
+//! Every supported input is decoded into a [`Screen`]. Character formats fill
+//! its grid of [`Cell`] values; RIPscrip fills its indexed-color raster instead.
+//! The text, PNG, and Kitty writers therefore do not need to understand the
+//! original file format.
+
 use std::path::Path;
 
 mod adf;
@@ -60,6 +67,8 @@ fn render_inner(
     adf_hint: bool,
     rip_hint: bool,
 ) -> Result<Document, String> {
+    // XBin has an unambiguous magic signature. Detect it before rejecting common
+    // image signatures because its signature also contains the DOS EOF byte.
     let is_xbin = data.starts_with(b"XBIN\x1a");
     if !is_xbin && let Some(format) = unsupported_format(data) {
         return Err(format!(
@@ -67,8 +76,13 @@ fn render_inner(
         ));
     }
 
+    // SAUCE is a 128-byte trailer, not the artwork itself. Besides metadata it
+    // supplies the exact content boundary, dimensions, blink semantics, and font.
     let sauce = Sauce::parse(data);
     let binary_content = sauce.as_ref().map_or(data, |sauce| sauce.content(data));
+
+    // Dispatch the structurally distinct formats first. ADF and RIPscrip do not
+    // use the ANSI state machine, while XBin already declares its complete grid.
     if rip_hint || rip::is_rip(binary_content) {
         let screen = rip::parse(binary_content, width_override)?;
         return Ok(Document { screen, sauce });
@@ -88,6 +102,8 @@ fn render_inner(
         let screen = xbin::parse(content, width_override)?;
         return Ok(Document { screen, sauce });
     }
+    // ANSI has no mandatory header. Prefer an explicit width, then SAUCE, then
+    // the longest plain-text line; escape-containing files fall back to 80.
     let declared_width = width_override.or_else(|| {
         sauce
             .as_ref()

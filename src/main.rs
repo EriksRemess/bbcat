@@ -69,9 +69,12 @@ fn run() -> Result<(), String> {
     let mut stdout = io::stdout().lock();
     for file in &options.files {
         let data = read(file)?;
+        // All input formats become the same Screen here. The remaining branches
+        // differ only in how that screen is serialized for the requested target.
         let document = bbcat::render_named(&data, options.width, file)
             .map_err(|error| format!("{file}: {error}"))?;
         if let Some(path) = &options.output {
+            // File output is a single PNG containing the complete screen.
             let png = bbcat::encode_screen_scaled(
                 &document.screen,
                 0,
@@ -81,6 +84,8 @@ fn run() -> Result<(), String> {
             .map_err(|error| format!("{file}: {error}"))?;
             write_png(&mut stdout, path, &png)?;
         } else if options.kitty {
+            // Kitty output transports PNG chunks inside terminal escape sequences;
+            // fit/crop, reveal delay, and scale select the appropriate wrapper.
             if let Some(delay) = options.delay {
                 if let Some(columns) = terminal_columns {
                     if options.fit {
@@ -141,6 +146,7 @@ fn run() -> Result<(), String> {
                 .map_err(|error| format!("{file}: {error}"))?;
             }
         } else if let Some(delay) = options.delay {
+            // Plain terminal output maps CP437 cells to Unicode plus ANSI colors.
             if let Some(columns) = terminal_columns {
                 bbcat::write_text_slow_cropped(&mut stdout, &document.screen, delay, columns)
                     .map_err(|error| format!("{file}: {error}"))?;
