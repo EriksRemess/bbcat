@@ -1,5 +1,5 @@
-#[cfg(target_os = "linux")]
-mod linux {
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod unix {
     use std::{
         ffi::c_int,
         fs::OpenOptions,
@@ -10,14 +10,36 @@ mod linux {
     };
 
     const QUERY: &[u8] = b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c";
+    const SIZE_QUERY: &[u8] = b"\x1b[18t";
     const TIMEOUT: Duration = Duration::from_millis(750);
     const TCSANOW: c_int = 0;
-    const ICANON: u32 = 0x0000_0002;
-    const ECHO: u32 = 0x0000_0008;
-    const VTIME: usize = 5;
-    const VMIN: usize = 6;
-    const TIOCGWINSZ: std::ffi::c_ulong = 0x5413;
 
+    #[cfg(target_os = "linux")]
+    const ICANON: u32 = 0x0000_0002;
+    #[cfg(target_os = "macos")]
+    const ICANON: u64 = 0x0000_0100;
+
+    #[cfg(target_os = "linux")]
+    const ECHO: u32 = 0x0000_0008;
+    #[cfg(target_os = "macos")]
+    const ECHO: u64 = 0x0000_0008;
+
+    #[cfg(target_os = "linux")]
+    const VTIME: usize = 5;
+    #[cfg(target_os = "macos")]
+    const VTIME: usize = 17;
+
+    #[cfg(target_os = "linux")]
+    const VMIN: usize = 6;
+    #[cfg(target_os = "macos")]
+    const VMIN: usize = 16;
+
+    #[cfg(target_os = "linux")]
+    const TIOCGWINSZ: std::ffi::c_ulong = 0x5413;
+    #[cfg(target_os = "macos")]
+    const TIOCGWINSZ: std::ffi::c_ulong = 0x4008_7468;
+
+    #[cfg(target_os = "linux")]
     #[repr(C)]
     #[derive(Clone, Copy)]
     struct Termios {
@@ -29,6 +51,19 @@ mod linux {
         control_characters: [u8; 32],
         input_speed: u32,
         output_speed: u32,
+    }
+
+    #[cfg(target_os = "macos")]
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Termios {
+        input_flags: u64,
+        output_flags: u64,
+        control_flags: u64,
+        local_flags: u64,
+        control_characters: [u8; 20],
+        input_speed: u64,
+        output_speed: u64,
     }
 
     #[repr(C)]
@@ -102,12 +137,87 @@ mod linux {
     }
 
     pub fn width() -> Option<usize> {
+        width_from_fd(io::stdout().as_raw_fd())
+            .or_else(|| {
+                OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open("/dev/tty")
+                    .ok()
+                    .and_then(|tty| width_from_fd(tty.as_raw_fd()))
+            })
+            .or_else(query_width)
+            .or_else(environment_width)
+    }
+
+    fn width_from_fd(fd: RawFd) -> Option<usize> {
         let mut size = MaybeUninit::<Winsize>::uninit();
-        if unsafe { ioctl(io::stdout().as_raw_fd(), TIOCGWINSZ, size.as_mut_ptr()) } == -1 {
-            return environment_width();
+        if unsafe { ioctl(fd, TIOCGWINSZ, size.as_mut_ptr()) } == -1 {
+            return None;
         }
         let columns = usize::from(unsafe { size.assume_init() }.columns);
-        (columns > 0).then_some(columns).or_else(environment_width)
+        (columns > 0).then_some(columns)
+    }
+
+    fn query_width() -> Option<usize> {
+        let mut tty = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("/dev/tty")
+            .ok()?;
+        let fd = tty.as_raw_fd();
+        let original = get_termios(fd).ok()?;
+        let _restore = RestoreTerminal { fd, original };
+
+        let mut probe_mode = original;
+        probe_mode.local_flags &= !(ICANON | ECHO);
+        probe_mode.control_characters[VMIN] = 0;
+        probe_mode.control_characters[VTIME] = 1;
+        set_termios(fd, &probe_mode).ok()?;
+
+        tty.write_all(SIZE_QUERY).ok()?;
+        tty.flush().ok()?;
+
+        let deadline = Instant::now() + TIMEOUT;
+        let mut response = Vec::with_capacity(64);
+        let mut buffer = [0_u8; 64];
+        while Instant::now() < deadline {
+            match tty.read(&mut buffer) {
+                Ok(0) => {}
+                Ok(length) => {
+                    response.extend_from_slice(&buffer[..length]);
+                    if let Some(columns) = size_query_result(&response) {
+                        return Some(columns);
+                    }
+                }
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => return None,
+            }
+        }
+        None
+    }
+
+    fn size_query_result(response: &[u8]) -> Option<usize> {
+        let start = response
+            .windows(4)
+            .position(|window| window == b"\x1b[8;")?
+            + 4;
+        let fields = &response[start..];
+        let separator = fields.iter().position(|&byte| byte == b';')?;
+        let end = fields[separator + 1..]
+            .iter()
+            .position(|&byte| byte == b't')?
+            + separator
+            + 1;
+        let rows = std::str::from_utf8(&fields[..separator])
+            .ok()?
+            .parse::<usize>()
+            .ok()?;
+        let columns = std::str::from_utf8(&fields[separator + 1..end])
+            .ok()?
+            .parse::<usize>()
+            .ok()?;
+        (rows > 0 && columns > 0).then_some(columns)
     }
 
     fn environment_width() -> Option<usize> {
@@ -173,18 +283,31 @@ mod linux {
         fn waits_for_the_device_attributes_marker() {
             assert_eq!(probe_result(b"\x1b_Gi=31;OK\x1b\\"), None);
         }
+
+        #[test]
+        fn recognizes_a_terminal_size_reply() {
+            assert_eq!(size_query_result(b"noise\x1b[8;42;120t"), Some(120));
+        }
+
+        #[test]
+        fn rejects_incomplete_or_invalid_terminal_sizes() {
+            assert_eq!(size_query_result(b"\x1b[8;42;"), None);
+            assert_eq!(size_query_result(b"\x1b[8;0;120t"), None);
+            assert_eq!(size_query_result(b"\x1b[8;42;0t"), None);
+            assert_eq!(size_query_result(b"\x1b[8;x;120t"), None);
+        }
     }
 }
 
-#[cfg(target_os = "linux")]
-pub use linux::{supports_kitty, width};
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub use unix::{supports_kitty, width};
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub fn supports_kitty() -> Result<bool, String> {
     Ok(false)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 pub fn width() -> Option<usize> {
     std::env::var("COLUMNS")
         .ok()
