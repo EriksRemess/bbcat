@@ -1,6 +1,6 @@
 [package]
 name = "bbcat"
-version = "0.1.12"
+version = "0.1.13"
 edition = "2024"
 description = "View ANSI, DIZ, ADF, RIPscrip, and XBin art in terminals or export PNG images"
 license = "MIT AND BSD-2-Clause AND Zlib AND LicenseRef-Empathy-font"
