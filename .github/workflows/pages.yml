@@ -6,7 +6,9 @@ on:
     paths:
       - .github/workflows/pages.yml
       - Cargo.toml
+      - site/favicon.svg
       - site/index.html
+      - site/robots.txt
   workflow_dispatch:
 
 permissions:
@@ -42,6 +44,8 @@ jobs:
 
           mkdir _site
           sed "s|v<!-- BBCAT_VERSION -->[^<]*|v<!-- BBCAT_VERSION -->$version|" site/index.html > _site/index.html
+          cp site/favicon.svg _site/favicon.svg
+          cp site/robots.txt _site/robots.txt
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v5
