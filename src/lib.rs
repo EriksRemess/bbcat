@@ -10,6 +10,7 @@ use std::{path::Path, time::Duration};
 mod adf;
 mod animation_image;
 mod ansi;
+mod asciimation;
 mod bgi_font;
 mod ddw;
 mod font;
@@ -22,6 +23,7 @@ mod xbin;
 
 pub use animation_image::{encode_animation_apng, encode_animation_gif};
 pub use ansi::{Cell, Screen};
+pub use asciimation::{Asciimation, parse as parse_asciimation, write as write_asciimation};
 pub use kitty::{
     write_screen, write_screen_cropped, write_screen_fit, write_screen_scaled,
     write_screen_scaled_cropped, write_screen_scaled_fit, write_screen_slow,

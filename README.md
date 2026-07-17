@@ -34,6 +34,7 @@ bbcat --gif animation.gif animation.ans
 bbcat --2x --kitty art.ans
 bbcat --sauce art.ans
 bbcat --baud 4x animation.ans
+bbcat --asciimation ~/Downloads/starwars.txt
 ```
 
 ## Output modes
@@ -101,6 +102,20 @@ terminal ansimation, or DDW's native durations, with `--baud` scaling either
 one. Supplying `--baud` explicitly replays an animation or uses the static row
 reveal even when UTF-8 output is redirected. `--baud` cannot be combined with
 Kitty, static PNG, `--slow`, or `--delay`.
+
+### ASCIImation text streams
+
+The plain-text streams published by [asciimation.co.nz](https://asciimation.co.nz/)
+do not contain terminal control sequences, so bbcat does not try to detect them
+automatically. Use `--asciimation` to play one explicitly:
+
+```console
+bbcat --asciimation ~/Downloads/starwars.txt
+```
+
+The format stores a duration in 100 ms ticks followed by thirteen complete ASCII
+rows per frame. Playback requires terminal stdout and redraws each frame
+atomically; it cannot be combined with graphics, output, width, or speed flags.
 
 ## Slow mode
 
@@ -205,6 +220,7 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 | `-o FILE`, `--output FILE` | Write an indexed-color PNG. Use `-` for standard output; requires exactly one input. |
 | `--apng FILE` | Write a looping indexed-color animated PNG from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
 | `--gif FILE` | Write a looping 16-color animated GIF from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
+| `--asciimation` | Play one explicit asciimation.co.nz-style text stream: a duration plus thirteen ASCII rows per frame. Requires terminal stdout and cannot be combined with rendering or output options. |
 | `-h`, `--help` | Print command help. |
 | `-V`, `--version` | Print the bbcat version. |
 

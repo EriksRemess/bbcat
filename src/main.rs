@@ -18,6 +18,7 @@ struct Options {
     output: Option<PathBuf>,
     apng: Option<PathBuf>,
     gif: Option<PathBuf>,
+    asciimation: bool,
     kitty: bool,
     fit: bool,
     delay: Option<Duration>,
@@ -57,6 +58,21 @@ fn run() -> Result<ExitCode, String> {
     if image_output && options.files.len() != 1 {
         return Err("image output requires exactly one input file".to_owned());
     }
+    if options.asciimation && options.files.len() != 1 {
+        return Err("--asciimation requires exactly one input file".to_owned());
+    }
+    if options.asciimation
+        && (image_output
+            || options.kitty
+            || options.fit
+            || options.delay.is_some()
+            || options.baud.is_some()
+            || options.scale > 1
+            || options.sauce
+            || options.width.is_some())
+    {
+        return Err("--asciimation cannot be combined with rendering or output options".to_owned());
+    }
     if image_output && options.delay.is_some() {
         return Err("--slow/--delay cannot be used with image output".to_owned());
     }
@@ -82,6 +98,9 @@ fn run() -> Result<ExitCode, String> {
         return Err("--2x requires --kitty, --output FILE, --apng FILE, or --gif FILE".to_owned());
     }
     let stdout_is_terminal = io::stdout().is_terminal();
+    if options.asciimation && !stdout_is_terminal {
+        return Err("--asciimation requires terminal stdout".to_owned());
+    }
     if options.kitty && !stdout_is_terminal {
         return Err("--kitty requires terminal stdout".to_owned());
     }
@@ -97,6 +116,23 @@ fn run() -> Result<ExitCode, String> {
         return Err("cannot determine terminal width for Kitty output".to_owned());
     }
     let mut stdout = io::stdout().lock();
+    if options.asciimation {
+        let file = &options.files[0];
+        let data = read(file)?;
+        let animation =
+            bbcat::parse_asciimation(&data).map_err(|error| format!("{file}: {error}"))?;
+        if let Some(columns) = terminal_columns
+            && animation.width > columns
+        {
+            return Err(format!(
+                "{file}: asciimation requires at least {} terminal columns",
+                animation.width
+            ));
+        }
+        bbcat::write_asciimation(&mut stdout, &animation)
+            .map_err(|error| format!("{file}: {error}"))?;
+        return Ok(ExitCode::SUCCESS);
+    }
     let mut input_error = false;
     for file in &options.files {
         let data = match read(file) {
@@ -335,6 +371,7 @@ fn parse_args() -> Result<Option<Options>, String> {
     let mut output = None;
     let mut apng = None;
     let mut gif = None;
+    let mut asciimation = false;
     let mut kitty = false;
     let mut fit = false;
     let mut delay = None;
@@ -376,6 +413,7 @@ fn parse_args() -> Result<Option<Options>, String> {
                         .ok_or_else(|| format!("{argument} requires a path"))?,
                 ));
             }
+            "--asciimation" => asciimation = true,
             "--kitty" => kitty = true,
             "--fit" => fit = true,
             "--slow" => {
@@ -411,6 +449,7 @@ fn parse_args() -> Result<Option<Options>, String> {
         output,
         apng,
         gif,
+        asciimation,
         kitty,
         fit,
         delay,
@@ -499,6 +538,7 @@ Options:
   -o, --output FILE         Write a PNG file; use - for stdout
       --apng FILE           Write an animated PNG; use - for stdout
       --gif FILE            Write an animated GIF; use - for stdout
+      --asciimation         Play a 13-row asciimation.co.nz frame stream
   -h, --help                Print help
   -V, --version             Print version"#,
         env!("CARGO_PKG_VERSION")
