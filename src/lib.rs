@@ -8,6 +8,7 @@
 use std::{path::Path, time::Duration};
 
 mod adf;
+mod animation_image;
 mod ansi;
 mod bgi_font;
 mod ddw;
@@ -19,6 +20,7 @@ mod sauce;
 mod text;
 mod xbin;
 
+pub use animation_image::{encode_animation_apng, encode_animation_gif};
 pub use ansi::{Cell, Screen};
 pub use kitty::{
     write_screen, write_screen_cropped, write_screen_fit, write_screen_scaled,

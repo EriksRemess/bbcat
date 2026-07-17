@@ -2,7 +2,7 @@
 
 Dependency-free terminal viewer for CP437 ANSI and ansimation, DarkDraw DDW,
 DIZ, ADF, RIPscrip, and XBin art. It writes colored UTF-8 by default, with
-optional Kitty graphics and PNG output.
+optional Kitty graphics plus PNG, APNG, and GIF output.
 
 Browse and download BBS art packs at [16colo.rs](https://16colo.rs/).
 
@@ -29,6 +29,8 @@ bbcat < art.ans
 bbcat --kitty scene.xb
 bbcat --output preview.png art.adf
 bbcat --output - art.ans > preview.png
+bbcat --apng animation.png animation.ans
+bbcat --gif animation.gif animation.ans
 bbcat --2x --kitty art.ans
 bbcat --sauce art.ans
 bbcat --baud 4x animation.ans
@@ -41,6 +43,8 @@ bbcat --baud 4x animation.ans
 | UTF-8 | default | Converts CP437 characters to Unicode and emits 24-bit ANSI colors. |
 | Kitty | `--kitty` | Renders bitmap glyphs through Kitty graphics, cropping at the terminal's right edge. |
 | PNG | `-o FILE`, `--output FILE` | Writes one indexed-color PNG; use `-` to write it to standard output. |
+| APNG | `--apng FILE` | Writes a looping indexed-color animated PNG from an ANSI or DDW animation. |
+| GIF | `--gif FILE` | Writes a looping 16-color animated GIF from an ANSI or DDW animation. |
 
 Kitty mode requires terminal stdout and a terminal that answers bbcat's Kitty
 graphics protocol probe. [Kitty](https://sw.kovidgoyal.net/kitty/) and
@@ -51,9 +55,10 @@ image to the terminal width instead of cropping. If that would make the image
 shorter than one terminal row, bbcat reports the minimum required terminal
 width.
 
-PNG mode requires exactly one input file. Use `--output -` to pipe or redirect
-the PNG from standard output. PNG mode cannot be combined with `--kitty`,
-`--slow`, `--delay`, or `--baud`.
+PNG, APNG, and GIF modes require exactly one input file. Use `-` as their
+output path to write the image to standard output. Choose only one image output
+mode; none can be combined with `--kitty`, `--slow`, `--delay`, or `--sauce`.
+Static PNG output cannot use `--baud`; APNG and GIF use it for frame timing.
 
 UTF-8 output is intended for character art using the standard CP437 glyph set.
 Use Kitty or PNG output for RIPscrip, XBin 512-character fonts, or artwork whose
@@ -90,9 +95,12 @@ animations leave the terminal intact. Both retain their final frame and return
 the shell prompt below it.
 
 Redirected UTF-8 output and Kitty or PNG output render the last visible state
-instead of replaying the animation. Supplying `--baud` explicitly replays an
-animation or uses the static row reveal even when UTF-8 output is redirected.
-`--baud` cannot be combined with Kitty, PNG, `--slow`, or `--delay`.
+instead of replaying the animation. `--apng` and `--gif` retain every detected
+frame and loop forever. Their frame delays use the same source-byte timing as
+terminal ansimation, or DDW's native durations, with `--baud` scaling either
+one. Supplying `--baud` explicitly replays an animation or uses the static row
+reveal even when UTF-8 output is redirected. `--baud` cannot be combined with
+Kitty, static PNG, `--slow`, or `--delay`.
 
 ## Slow mode
 
@@ -107,9 +115,9 @@ bbcat --kitty --slow art.ans
 milliseconds. Both UTF-8 and Kitty modes flush each row before waiting; Kitty
 mode automatically uses one image strip per character row.
 
-Slow mode is not supported with ANSI animation, PNG output, or RIPscrip raster
-graphics. Use `--baud` for baud-paced ANSI/text output. In Kitty slow mode,
-`--chunk-lines` has no effect.
+Slow mode is not supported with ANSI animation, image output, or RIPscrip
+raster graphics. Use `--baud` for baud-paced ANSI/text output. In Kitty slow
+mode, `--chunk-lines` has no effect.
 
 ## SAUCE metadata
 
@@ -117,7 +125,7 @@ Use `--sauce` to show an artwork's available SAUCE title, author, group, and
 creation date as a compact gallery-style caption below the rendered art. Files
 without descriptive SAUCE metadata render without a caption. The option works
 with UTF-8 and Kitty output, including multiple input files, but cannot be
-combined with PNG output.
+combined with image output.
 
 ## 2x scaling
 
@@ -125,23 +133,24 @@ combined with PNG output.
 bbcat --2x --kitty scene.xb
 bbcat --kitty --fit wide.ans
 bbcat --2x --output large.png drawing.rip
+bbcat --2x --apng large.png animation.ans
 bbcat --2x --kitty --slow art.ans
 ```
 
 `--2x` doubles both graphical output dimensions. Kitty mode crops the doubled
-bitmap at the terminal width unless `--fit` is present; PNG mode writes an image
-with twice the width and height. It works with every supported input format and
-can be combined with Kitty slow mode. Slow-mode delays remain per original
-artwork row.
+bitmap at the terminal width unless `--fit` is present; image output writes an
+image with twice the width and height. It works with every supported input
+format and can be combined with Kitty slow mode. Slow-mode delays remain per
+original artwork row.
 
 Scaling is intentionally unavailable in UTF-8 mode: repeating text characters
-would change strings and distort line art. Use `--kitty` or `--output FILE` with
-`--2x`.
+would change strings and distort line art. Use `--kitty`, `--output FILE`,
+`--apng FILE`, or `--gif FILE` with `--2x`.
 
 When UTF-8 output goes directly to a terminal, rows wider than the terminal are
 cropped to its current column count. Redirected or piped UTF-8 output preserves
 the full artwork width. Kitty crops at terminal width by default; `--fit` scales
-the complete image down when at least one terminal row remains. PNG output
+the complete image down when at least one terminal row remains. Image output
 always retains its full dimensions.
 
 ## Formats
@@ -156,8 +165,8 @@ always retains its full dimensions.
   are expanded recursively at their positioned frame. Each DDW frame uses its
   declared duration. A `Dimensions` metadata record is used when present;
   otherwise bbcat infers the canvas from the positioned text. Terminal playback
-  preserves Unicode glyphs and 16- and 256-color styles; Kitty and PNG output
-  show the final frame with a CP437/VGA approximation where necessary.
+  preserves Unicode glyphs and 16- and 256-color styles; graphical output uses
+  a CP437/VGA approximation where necessary. APNG and GIF retain every frame.
 - XBin (`.XB`) with embedded palettes, 8- or 16-color backgrounds, embedded
   fonts up to 32 pixels high, 256- and 512-character modes, and XBin RLE.
 - ArtWorx Data Format (`.ADF`) version 1 with its embedded palette and 8x16
@@ -168,7 +177,7 @@ always retains its full dimensions.
 
 SAUCE metadata is used for content length, canvas dimensions, iCE color mode,
 8- or 9-pixel VGA letter spacing, and named IBM VGA50, Amiga MicroKnight,
-Amiga Topaz 2+, and Empathy bitmap fonts when present. Kitty and PNG output
+Amiga Topaz 2+, and Empathy bitmap fonts when present. Kitty and image output
 reproduce their exact glyph shapes; UTF-8 output remains a terminal-font
 approximation. A 9-pixel Kitty raster reserves its full pixel width, so it may
 occupy more terminal columns than the source character grid. A DOS EOF marker
@@ -190,10 +199,12 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 | `--fit` | Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row. |
 | `--slow` | Reveal one character row at a time using a 25 ms delay. |
 | `--delay MS` | Enable slow mode with a delay from 1 through 10,000 ms per row. |
-| `--baud RATE` | Play ANSI animation by source-byte timing or DDW animation by native frame timing, or set static ANSI/text row-reveal speed. `1X` is the same 25 ms/row as `--slow`; rates scale it proportionally. Run `--baud` alone for familiar suggested values. |
-| `--2x` | Double Kitty or PNG output width and height. Requires `--kitty` or `--output FILE`. |
+| `--baud RATE` | Play ANSI animation by source-byte timing or DDW animation by native frame timing, set static ANSI/text row-reveal speed, or control APNG/GIF frame timing. `1X` is the same 25 ms/row as `--slow`; rates scale it proportionally. Run `--baud` alone for familiar suggested values. |
+| `--2x` | Double Kitty or image output width and height. Requires `--kitty`, `--output FILE`, `--apng FILE`, or `--gif FILE`. |
 | `--sauce` | Show the available SAUCE title, author, group, and creation date below the artwork. |
 | `-o FILE`, `--output FILE` | Write an indexed-color PNG. Use `-` for standard output; requires exactly one input. |
+| `--apng FILE` | Write a looping indexed-color animated PNG from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
+| `--gif FILE` | Write a looping 16-color animated GIF from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
 | `-h`, `--help` | Print command help. |
 | `-V`, `--version` | Print the bbcat version. |
 

@@ -2,7 +2,7 @@
 name = "bbcat"
 version = "0.3.2"
 edition = "2024"
-description = "View ANSI, DarkDraw DDW, DIZ, ADF, RIPscrip, and XBin art in terminals or export PNG images"
+description = "View ANSI, DarkDraw DDW, DIZ, ADF, RIPscrip, and XBin art in terminals or export PNG, APNG, and GIF images"
 license = "MIT AND BSD-2-Clause AND Zlib AND LicenseRef-Empathy-font"
 readme = "README.md"
 documentation = "https://docs.rs/bbcat"

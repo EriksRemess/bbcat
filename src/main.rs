@@ -16,6 +16,8 @@ struct Options {
     width: Option<usize>,
     chunk_lines: usize,
     output: Option<PathBuf>,
+    apng: Option<PathBuf>,
+    gif: Option<PathBuf>,
     kitty: bool,
     fit: bool,
     delay: Option<Duration>,
@@ -39,17 +41,30 @@ fn run() -> Result<ExitCode, String> {
     let Some(options) = parse_args()? else {
         return Ok(ExitCode::SUCCESS);
     };
-    if options.output.is_some() && options.files.len() != 1 {
-        return Err("--output requires exactly one input file".to_owned());
+    let image_output = options.output.is_some() || options.apng.is_some() || options.gif.is_some();
+    if [
+        options.output.as_ref(),
+        options.apng.as_ref(),
+        options.gif.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .count()
+        > 1
+    {
+        return Err("choose only one of --output, --apng, or --gif".to_owned());
     }
-    if options.output.is_some() && options.delay.is_some() {
-        return Err("--slow/--delay cannot be used with --output".to_owned());
+    if image_output && options.files.len() != 1 {
+        return Err("image output requires exactly one input file".to_owned());
+    }
+    if image_output && options.delay.is_some() {
+        return Err("--slow/--delay cannot be used with image output".to_owned());
     }
     if options.output.is_some() && options.baud.is_some() {
         return Err("--baud cannot be used with --output".to_owned());
     }
-    if options.output.is_some() && options.kitty {
-        return Err("--output and --kitty cannot be used together".to_owned());
+    if image_output && options.kitty {
+        return Err("image output and --kitty cannot be used together".to_owned());
     }
     if options.kitty && options.baud.is_some() {
         return Err("--baud cannot be used with --kitty".to_owned());
@@ -57,14 +72,14 @@ fn run() -> Result<ExitCode, String> {
     if options.delay.is_some() && options.baud.is_some() {
         return Err("--slow/--delay and --baud cannot be used together".to_owned());
     }
-    if options.output.is_some() && options.sauce {
-        return Err("--sauce cannot be used with --output".to_owned());
+    if image_output && options.sauce {
+        return Err("--sauce cannot be used with image output".to_owned());
     }
     if options.fit && !options.kitty {
         return Err("--fit requires --kitty".to_owned());
     }
-    if options.scale > 1 && options.output.is_none() && !options.kitty {
-        return Err("--2x requires --kitty or --output FILE".to_owned());
+    if options.scale > 1 && !image_output && !options.kitty {
+        return Err("--2x requires --kitty, --output FILE, --apng FILE, or --gif FILE".to_owned());
     }
     let stdout_is_terminal = io::stdout().is_terminal();
     if options.kitty && !stdout_is_terminal {
@@ -109,7 +124,31 @@ fn run() -> Result<ExitCode, String> {
             input_error = true;
             continue;
         }
-        if let Some(path) = &options.output {
+        if let Some(path) = &options.apng {
+            let animation = document
+                .animation
+                .as_ref()
+                .ok_or_else(|| format!("{file}: --apng requires an animated ANSI or DDW input"))?;
+            let apng = bbcat::encode_animation_apng(
+                animation,
+                options.baud.unwrap_or(bbcat::DEFAULT_ANIMATION_BAUD),
+                options.scale,
+            )
+            .map_err(|error| format!("{file}: {error}"))?;
+            write_png(&mut stdout, path, &apng)?;
+        } else if let Some(path) = &options.gif {
+            let animation = document
+                .animation
+                .as_ref()
+                .ok_or_else(|| format!("{file}: --gif requires an animated ANSI or DDW input"))?;
+            let gif = bbcat::encode_animation_gif(
+                animation,
+                options.baud.unwrap_or(bbcat::DEFAULT_ANIMATION_BAUD),
+                options.scale,
+            )
+            .map_err(|error| format!("{file}: {error}"))?;
+            write_png(&mut stdout, path, &gif)?;
+        } else if let Some(path) = &options.output {
             // File output is a single PNG containing the complete screen.
             let png = bbcat::encode_screen_scaled(
                 &document.screen,
@@ -294,6 +333,8 @@ fn parse_args() -> Result<Option<Options>, String> {
         .and_then(|value| value.parse::<usize>().ok())
         .map_or(24, |lines| lines.saturating_sub(1).clamp(1, 64));
     let mut output = None;
+    let mut apng = None;
+    let mut gif = None;
     let mut kitty = false;
     let mut fit = false;
     let mut delay = None;
@@ -316,6 +357,20 @@ fn parse_args() -> Result<Option<Options>, String> {
             "--chunk-lines" => chunk_lines = number(&argument, arguments.next())?,
             "-o" | "--output" => {
                 output = Some(PathBuf::from(
+                    arguments
+                        .next()
+                        .ok_or_else(|| format!("{argument} requires a path"))?,
+                ));
+            }
+            "--apng" => {
+                apng = Some(PathBuf::from(
+                    arguments
+                        .next()
+                        .ok_or_else(|| format!("{argument} requires a path"))?,
+                ));
+            }
+            "--gif" => {
+                gif = Some(PathBuf::from(
                     arguments
                         .next()
                         .ok_or_else(|| format!("{argument} requires a path"))?,
@@ -354,6 +409,8 @@ fn parse_args() -> Result<Option<Options>, String> {
         width,
         chunk_lines,
         output,
+        apng,
+        gif,
         kitty,
         fit,
         delay,
@@ -422,7 +479,7 @@ fn baud_suggestions(option: &str) -> String {
 fn print_help() {
     println!(
         r#"bbcat {}
-Render character art, play terminal animation, or write Kitty graphics and PNG.
+Render character art, play terminal animation, or write Kitty, PNG, APNG, and GIF images.
 
 Usage: bbcat [OPTIONS] [FILE]...
 
@@ -437,9 +494,11 @@ Options:
       --slow                Reveal character art one row at a time (25 ms/row)
       --delay MS            Set the slow-mode row delay (1..=10000)
       --baud RATE           Animation speed or static row-reveal speed: positive RATE or Nx (try --baud for suggestions; 1X is 25 ms/row)
-      --2x                  Double Kitty or PNG output dimensions
+      --2x                  Double Kitty or image output dimensions
       --sauce               Show a SAUCE caption below the artwork
   -o, --output FILE         Write a PNG file; use - for stdout
+      --apng FILE           Write an animated PNG; use - for stdout
+      --gif FILE            Write an animated GIF; use - for stdout
   -h, --help                Print help
   -V, --version             Print version"#,
         env!("CARGO_PKG_VERSION")
