@@ -13,8 +13,24 @@ pub struct Sauce {
     pub width: usize,
     pub height: usize,
     pub ice_colors: bool,
+    pub letter_spacing: Option<LetterSpacing>,
     pub font_name: String,
     content_len: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LetterSpacing {
+    EightPixels,
+    NinePixels,
+}
+
+impl LetterSpacing {
+    pub(crate) fn glyph_width(self) -> usize {
+        match self {
+            Self::EightPixels => 8,
+            Self::NinePixels => 9,
+        }
+    }
 }
 
 impl Sauce {
@@ -43,6 +59,7 @@ impl Sauce {
             width,
             height,
             ice_colors: false,
+            letter_spacing: None,
             font_name,
             content_len: 0,
         })
@@ -72,6 +89,11 @@ impl Sauce {
             width: u16::from_le_bytes(record[96..98].try_into().ok()?) as usize,
             height: u16::from_le_bytes(record[98..100].try_into().ok()?) as usize,
             ice_colors: record[105] & 1 != 0,
+            letter_spacing: match (record[105] >> 1) & 0b11 {
+                1 => Some(LetterSpacing::EightPixels),
+                2 => Some(LetterSpacing::NinePixels),
+                _ => None,
+            },
             font_name: field(&record[106..128]),
             content_len,
         })
@@ -106,13 +128,14 @@ mod tests {
         record[90..94].copy_from_slice(&3_u32.to_le_bytes());
         record[96..98].copy_from_slice(&80_u16.to_le_bytes());
         record[98..100].copy_from_slice(&25_u16.to_le_bytes());
-        record[105] = 1;
+        record[105] = 0b101; // iCE colors plus a 9-pixel VGA font.
         data.extend(record);
 
         let sauce = Sauce::parse(&data).unwrap();
         assert_eq!(sauce.title, "Demo");
         assert_eq!((sauce.width, sauce.height), (80, 25));
         assert!(sauce.ice_colors);
+        assert_eq!(sauce.letter_spacing, Some(LetterSpacing::NinePixels));
         assert_eq!(sauce.content(&data), b"xxx");
     }
 

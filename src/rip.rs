@@ -55,6 +55,7 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
         width: WIDTH / 8,
         height: HEIGHT.div_ceil(16),
         cells: Vec::new(),
+        glyph_width: 8,
         glyph_height: 16,
         font: None,
         palette: Some(canvas.palette),

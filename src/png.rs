@@ -2,7 +2,9 @@
 //!
 //! Character screens are rasterized through an 8-pixel-wide bitmap font. Each
 //! set glyph bit selects the cell foreground; each clear bit selects its
-//! background. RIPscrip already supplies indexed pixels and skips that step.
+//! background. SAUCE can request a nine-pixel VGA cell, whose extra column
+//! reproduces the hardware's line-graphics extension. RIPscrip already supplies
+//! indexed pixels and skips that step.
 //! Both paths produce a 4-bit indexed PNG with a 16-color palette.
 
 use crate::{Screen, font};
@@ -62,7 +64,7 @@ pub fn encode_screen_scaled(
     }
     let width = screen
         .width
-        .checked_mul(8)
+        .checked_mul(screen.glyph_width)
         .and_then(|width| width.checked_mul(scale))
         .ok_or("PNG width overflow")?;
     let height = rows
@@ -104,8 +106,8 @@ pub fn encode_screen_scaled(
                     let bits = *glyphs
                         .get(glyph)
                         .ok_or("character references a missing font glyph")?;
-                    for bit in 0..8 {
-                        let color = if bits & (0x80 >> bit) != 0 {
+                    for pixel in 0..screen.glyph_width {
+                        let color = if glyph_pixel(bits, cell.character, pixel) {
                             cell.foreground
                         } else {
                             cell.background
@@ -177,7 +179,10 @@ fn encode_screen_scaled_width(
     let source_width = screen
         .raster
         .as_ref()
-        .map_or_else(|| screen.width.checked_mul(8), |raster| Some(raster.width))
+        .map_or_else(
+            || screen.width.checked_mul(screen.glyph_width),
+            |raster| Some(raster.width),
+        )
         .ok_or("PNG width overflow")?;
     let requested_width = source_width
         .checked_mul(scale)
@@ -239,7 +244,7 @@ fn encode_screen_scaled_width(
             } else {
                 x
             } / scale;
-            let cell = &screen.cells[character_row * screen.width + source_x / 8];
+            let cell = &screen.cells[character_row * screen.width + source_x / screen.glyph_width];
             let glyph = usize::from(cell.character)
                 .checked_mul(screen.glyph_height)
                 .and_then(|offset| offset.checked_add(glyph_row))
@@ -247,7 +252,7 @@ fn encode_screen_scaled_width(
             let bits = *glyphs
                 .get(glyph)
                 .ok_or("character references a missing font glyph")?;
-            let color = if bits & (0x80 >> (source_x % 8)) != 0 {
+            let color = if glyph_pixel(bits, cell.character, source_x % screen.glyph_width) {
                 cell.foreground
             } else {
                 cell.background
@@ -265,6 +270,16 @@ fn encode_screen_scaled_width(
         &pixels,
         screen.palette.unwrap_or(VGA_PALETTE),
     ))
+}
+
+fn glyph_pixel(bits: u8, character: u16, pixel: usize) -> bool {
+    match pixel {
+        0..=7 => bits & (0x80 >> pixel) != 0,
+        // The VGA's 9th pixel column duplicated column eight only for this
+        // line-graphics range. Shade blocks deliberately retain a blank gap.
+        8 if (0xc0..=0xdf).contains(&character) => bits & 1 != 0,
+        _ => false,
+    }
 }
 
 fn encode_indexed_width(
@@ -493,6 +508,7 @@ mod tests {
             width: 1,
             height: 1,
             cells: vec![Cell::default()],
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,
@@ -512,6 +528,7 @@ mod tests {
             width: 1,
             height: 1,
             cells: vec![Cell::default()],
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,
@@ -524,11 +541,36 @@ mod tests {
     }
 
     #[test]
+    fn nine_pixel_vga_spacing_widens_line_graphics() {
+        let screen = Screen {
+            width: 1,
+            height: 1,
+            cells: vec![Cell {
+                character: 0xc4,
+                foreground: 7,
+                background: 0,
+            }],
+            glyph_width: 9,
+            glyph_height: 16,
+            font: None,
+            palette: None,
+            utf8_supported: true,
+            raster: None,
+        };
+        let png = encode_screen(&screen, 0, 1).unwrap();
+
+        assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 9);
+        assert!(glyph_pixel(0x01, 0xc4, 8));
+        assert!(!glyph_pixel(0x01, 0xb0, 8));
+    }
+
+    #[test]
     fn fits_extra_wide_pngs_before_kitty_transport() {
         let screen = Screen {
             width: 4,
             height: 1,
             cells: vec![Cell::default(); 4],
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,
@@ -550,6 +592,7 @@ mod tests {
             width: 4,
             height: 1,
             cells: vec![Cell::default(); 4],
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,

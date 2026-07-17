@@ -566,6 +566,7 @@ mod tests {
             width: cells.len(),
             height: 1,
             cells,
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,

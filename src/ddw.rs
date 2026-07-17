@@ -369,6 +369,7 @@ fn paint_frame(
             width,
             height,
             cells,
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,

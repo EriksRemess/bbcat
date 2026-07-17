@@ -167,10 +167,12 @@ always retains its full dimensions.
   requires Kitty or PNG output.
 
 SAUCE metadata is used for content length, canvas dimensions, iCE color mode,
-and named IBM VGA50, Amiga MicroKnight, Amiga Topaz 2+, and Empathy bitmap
-fonts when present. Kitty and PNG output reproduce their exact glyph shapes;
-UTF-8 output remains a terminal-font approximation. A DOS EOF marker terminates
-plain ANSI/text input.
+8- or 9-pixel VGA letter spacing, and named IBM VGA50, Amiga MicroKnight,
+Amiga Topaz 2+, and Empathy bitmap fonts when present. Kitty and PNG output
+reproduce their exact glyph shapes; UTF-8 output remains a terminal-font
+approximation. A 9-pixel Kitty raster reserves its full pixel width, so it may
+occupy more terminal columns than the source character grid. A DOS EOF marker
+terminates plain ANSI/text input.
 
 Common raster image inputs such as PNG, GIF, JPEG, WebP, TIFF, ICO, BMP, and
 QOI are rejected by content with an explanatory error instead of being parsed

@@ -211,7 +211,7 @@ fn write_screen_inner<W: Write>(
     // be rendered as several shorter images to avoid tall terminal placements.
     if screen.raster.is_some() {
         let image = encode_image(screen, 0, screen.height, scale, width_mode)?;
-        let columns = output_columns(screen.width, scale, width_mode)?;
+        let columns = image_columns(&image)?;
         let placement_rows = image_rows(&image)?;
         write_image(output, &image, columns, placement_rows)?;
         advance_rows(output, placement_rows)?;
@@ -227,7 +227,7 @@ fn write_screen_inner<W: Write>(
     for first_row in (0..screen.height).step_by(chunk_lines) {
         let rows = chunk_lines.min(screen.height - first_row);
         let image = encode_image(screen, first_row, rows, scale, width_mode)?;
-        let columns = output_columns(screen.width, scale, width_mode)?;
+        let columns = image_columns(&image)?;
         let placement_rows = image_rows(&image)?;
         write_image(output, &image, columns, placement_rows)?;
         advance_rows(output, placement_rows)?;
@@ -241,12 +241,6 @@ fn write_screen_inner<W: Write>(
     output.flush()
 }
 
-fn scaled(value: usize, scale: usize) -> io::Result<usize> {
-    value
-        .checked_mul(scale)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "output dimensions overflow"))
-}
-
 fn validate_fit_height(
     screen: &Screen,
     scale: usize,
@@ -257,7 +251,10 @@ fn validate_fit_height(
         (raster.width, raster.height)
     } else {
         (
-            screen.width.checked_mul(8).ok_or_else(dimension_error)?,
+            screen
+                .width
+                .checked_mul(screen.glyph_width)
+                .ok_or_else(dimension_error)?,
             rows.checked_mul(screen.glyph_height)
                 .ok_or_else(dimension_error)?,
         )
@@ -309,19 +306,23 @@ fn image_rows(image: &[u8]) -> io::Result<usize> {
     Ok((height as usize).div_ceil(16).max(1))
 }
 
+fn image_columns(image: &[u8]) -> io::Result<usize> {
+    // The renderer uses an 8-pixel terminal-cell baseline. A 9-pixel VGA
+    // raster must therefore reserve more cells instead of being squeezed into
+    // the source's character-column count.
+    let width = image
+        .get(16..20)
+        .and_then(|bytes| bytes.try_into().ok())
+        .map(u32::from_be_bytes)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid PNG dimensions"))?;
+    Ok((width as usize).div_ceil(8).max(1))
+}
+
 fn advance_rows<W: Write>(output: &mut W, rows: usize) -> io::Result<()> {
     for _ in 0..rows {
         output.write_all(b"\r\n")?;
     }
     Ok(())
-}
-
-fn output_columns(width: usize, scale: usize, mode: WidthMode) -> io::Result<usize> {
-    let columns = scaled(width, scale)?;
-    Ok(match mode {
-        WidthMode::Full => columns,
-        WidthMode::Crop(maximum) | WidthMode::Fit(maximum) => columns.min(maximum),
-    })
 }
 
 fn encode_image(
@@ -419,6 +420,7 @@ mod tests {
             width: 1,
             height: 1,
             cells: vec![Cell::default()],
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,
@@ -432,11 +434,31 @@ mod tests {
     }
 
     #[test]
+    fn nine_pixel_raster_uses_its_full_terminal_width() {
+        let screen = Screen {
+            width: 1,
+            height: 1,
+            cells: vec![Cell::default()],
+            glyph_width: 9,
+            glyph_height: 16,
+            font: None,
+            palette: None,
+            utf8_supported: true,
+            raster: None,
+        };
+        let mut output = Vec::new();
+        write_screen(&mut output, &screen, 24).unwrap();
+
+        assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=2,r=1,C=1,q=2,m=0;"));
+    }
+
+    #[test]
     fn slow_output_uses_one_image_per_character_row() {
         let screen = Screen {
             width: 1,
             height: 2,
             cells: vec![Cell::default(); 2],
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,
@@ -474,6 +496,7 @@ mod tests {
             width: 1,
             height: 1,
             cells: vec![Cell::default()],
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,
@@ -492,6 +515,7 @@ mod tests {
             width: 4,
             height: 2,
             cells: vec![Cell::default(); 8],
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,
@@ -509,6 +533,7 @@ mod tests {
             width: 4,
             height: 1,
             cells: vec![Cell::default(); 4],
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,
@@ -526,6 +551,7 @@ mod tests {
             width: 1_750,
             height: 25,
             cells: vec![Cell::default(); 1_750 * 25],
+            glyph_width: 8,
             glyph_height: 8,
             font: Some(crate::font::glyphs_8x8().to_vec()),
             palette: None,
@@ -546,6 +572,7 @@ mod tests {
             width: 1,
             height: 19,
             cells: vec![Cell::default(); 19],
+            glyph_width: 8,
             glyph_height: 8,
             font: Some(crate::font::glyphs_8x8().to_vec()),
             palette: None,

@@ -90,6 +90,7 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
         width: WIDTH,
         height: cell_count / WIDTH,
         cells,
+        glyph_width: 8,
         glyph_height: 16,
         font: Some(font),
         palette: Some(palette),

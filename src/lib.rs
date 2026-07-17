@@ -27,7 +27,7 @@ pub use kitty::{
     write_screen_slow_scaled_cropped, write_screen_slow_scaled_fit,
 };
 pub use png::{encode_screen, encode_screen_scaled};
-pub use sauce::Sauce;
+pub use sauce::{LetterSpacing, Sauce};
 pub use text::{
     DEFAULT_ANIMATION_BAUD, write_animation, write_animation_at_baud, write_screen as write_text,
     write_screen_cropped as write_text_cropped, write_screen_slow as write_text_slow,
@@ -204,6 +204,12 @@ fn render_inner(
         for frame in &mut parsed.frames {
             frame.screen.glyph_height = selected.glyph_height;
             frame.screen.font = Some(selected.glyphs.to_vec());
+        }
+    }
+    if let Some(spacing) = sauce.as_ref().and_then(|sauce| sauce.letter_spacing) {
+        parsed.screen.glyph_width = spacing.glyph_width();
+        for frame in &mut parsed.frames {
+            frame.screen.glyph_width = spacing.glyph_width();
         }
     }
     let animation = (!parsed.frames.is_empty()).then(|| Animation {
@@ -430,10 +436,12 @@ mod tests {
         record[90..94].copy_from_slice(&(content.len() as u32).to_le_bytes());
         record[96..98].copy_from_slice(&80_u16.to_le_bytes());
         record[98..100].copy_from_slice(&1_u16.to_le_bytes());
+        record[105] = 0b100;
         record[106..115].copy_from_slice(b"IBM VGA50");
         data.extend(record);
 
         let document = render(&data, None).unwrap();
+        assert_eq!(document.screen.glyph_width, 9);
         assert_eq!(document.screen.glyph_height, 8);
         assert_eq!(document.screen.font.as_deref(), Some(font::glyphs_8x8()));
     }

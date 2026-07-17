@@ -33,6 +33,7 @@ pub struct Screen {
     pub cells: Vec<Cell>,
     // Graphical writers use these format-specific additions when the default
     // 8x16 VGA font and palette are not sufficient.
+    pub(crate) glyph_width: usize,
     pub(crate) glyph_height: usize,
     pub(crate) font: Option<Vec<u8>>,
     pub(crate) palette: Option<[[u8; 3]; 16]>,
@@ -255,6 +256,7 @@ impl Parser {
             width: self.width,
             height,
             cells,
+            glyph_width: 8,
             glyph_height: 16,
             font: None,
             palette: None,
