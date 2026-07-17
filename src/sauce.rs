@@ -18,6 +18,36 @@ pub struct Sauce {
 }
 
 impl Sauce {
+    pub(crate) fn from_text_metadata(
+        title: String,
+        author: String,
+        group: String,
+        date: String,
+        width: usize,
+        height: usize,
+        font_name: String,
+    ) -> Option<Self> {
+        if title.is_empty()
+            && author.is_empty()
+            && group.is_empty()
+            && date.is_empty()
+            && font_name.is_empty()
+        {
+            return None;
+        }
+        Some(Self {
+            title,
+            author,
+            group,
+            date,
+            width,
+            height,
+            ice_colors: false,
+            font_name,
+            content_len: 0,
+        })
+    }
+
     pub fn parse(data: &[u8]) -> Option<Self> {
         // The signature is meaningful only exactly 128 bytes from EOF.
         let start = data.len().checked_sub(128)?;

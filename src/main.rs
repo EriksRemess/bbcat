@@ -104,7 +104,7 @@ fn run() -> Result<ExitCode, String> {
         };
         if options.delay.is_some() && document.animation.is_some() {
             eprintln!(
-                "bbcat: {file}: use --baud to control ANSI animation speed; --slow/--delay reveal static art by row"
+                "bbcat: {file}: use --baud to control animation speed; --slow/--delay reveal static art by row"
             );
             input_error = true;
             continue;
@@ -422,12 +422,12 @@ fn baud_suggestions(option: &str) -> String {
 fn print_help() {
     println!(
         r#"bbcat {}
-Render character art, play ANSI animation, or write Kitty graphics and PNG.
+Render character art, play terminal animation, or write Kitty graphics and PNG.
 
 Usage: bbcat [OPTIONS] [FILE]...
 
 Arguments:
-  [FILE]...                 .ANS/.DIZ/.ADF/.RIP/.XB files; use - or omit for stdin
+  [FILE]...                 .ANS/.DDW/.DIZ/.ADF/.RIP/.XB files; use - or omit for stdin
 
 Options:
   -w, --width COLS          Override text width; must match fixed binary/vector widths

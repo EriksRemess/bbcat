@@ -5,11 +5,12 @@
 //! The text, PNG, and Kitty writers therefore do not need to understand the
 //! original file format.
 
-use std::path::Path;
+use std::{path::Path, time::Duration};
 
 mod adf;
 mod ansi;
 mod bgi_font;
+mod ddw;
 mod font;
 mod kitty;
 mod png;
@@ -40,7 +41,7 @@ const MAX_INFERRED_WIDTH: usize = 1_000;
 pub struct Document {
     pub screen: Screen,
     pub sauce: Option<Sauce>,
-    /// Complete screen states when repeated ANSI rewrites identify ansimation.
+    /// Complete screen states when the source contains an animation.
     pub animation: Option<Animation>,
 }
 
@@ -53,14 +54,18 @@ pub struct Animation {
 #[derive(Debug)]
 pub struct AnimationFrame {
     pub screen: Screen,
-    /// Encoded ANSI bytes whose terminal effects produce this frame.
+    /// Encoded terminal bytes whose effects produce this frame.
     pub source_bytes: usize,
-    /// Sanitized during playback and committed as one synchronized update.
+    /// Native frame duration for formats that carry explicit timing.
+    pub duration: Option<Duration>,
+    /// Whether `data` is already UTF-8 terminal text rather than CP437 bytes.
+    pub utf8: bool,
+    /// Sanitized ANSI or generated UTF-8, committed as one synchronized update.
     pub data: Vec<u8>,
 }
 
 pub fn render(data: &[u8], width_override: Option<usize>) -> Result<Document, String> {
-    render_inner(data, width_override, false, false)
+    render_inner(data, width_override, false, false, false)
 }
 
 pub fn render_named(
@@ -76,7 +81,11 @@ pub fn render_named(
         .extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case("rip"));
-    render_inner(data, width_override, adf_hint, rip_hint)
+    let ddw_hint = Path::new(name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("ddw"));
+    render_inner(data, width_override, adf_hint, rip_hint, ddw_hint)
 }
 
 fn render_inner(
@@ -84,13 +93,36 @@ fn render_inner(
     width_override: Option<usize>,
     adf_hint: bool,
     rip_hint: bool,
+    ddw_hint: bool,
 ) -> Result<Document, String> {
+    if ddw_hint || ddw::is_ddw(data) {
+        let parsed = ddw::parse(data, width_override)?;
+        let animation = (!parsed.frames.is_empty()).then(|| Animation {
+            frames: parsed
+                .frames
+                .into_iter()
+                .map(|frame| AnimationFrame {
+                    screen: frame.screen,
+                    source_bytes: frame.data.len(),
+                    duration: Some(frame.duration),
+                    utf8: true,
+                    data: frame.data,
+                })
+                .collect(),
+            clear_on_finish: false,
+        });
+        return Ok(Document {
+            screen: parsed.screen,
+            sauce: parsed.sauce,
+            animation,
+        });
+    }
     // XBin has an unambiguous magic signature. Detect it before rejecting common
     // image signatures because its signature also contains the DOS EOF byte.
     let is_xbin = data.starts_with(b"XBIN\x1a");
     if !is_xbin && let Some(format) = unsupported_format(data) {
         return Err(format!(
-            "{format} input is not supported; expected ANSI, DIZ, ADF, RIPscrip, or XBin art"
+            "{format} input is not supported; expected ANSI, DDW, DIZ, ADF, RIPscrip, or XBin art"
         ));
     }
 
@@ -181,6 +213,8 @@ fn render_inner(
             .map(|frame| AnimationFrame {
                 screen: frame.screen,
                 source_bytes: frame.source_bytes,
+                duration: None,
+                utf8: false,
                 data: frame.data,
             })
             .collect(),
@@ -307,7 +341,7 @@ mod tests {
         let error = render(b"\x89PNG\r\n\x1a\nrest", None).unwrap_err();
         assert_eq!(
             error,
-            "PNG image input is not supported; expected ANSI, DIZ, ADF, RIPscrip, or XBin art"
+            "PNG image input is not supported; expected ANSI, DDW, DIZ, ADF, RIPscrip, or XBin art"
         );
     }
 
@@ -345,6 +379,23 @@ mod tests {
     fn named_rip_inputs_are_validated_as_ripscrip() {
         let error = render_named(b"not RIPscrip", None, "broken.rip").unwrap_err();
         assert!(error.contains("RIPscrip header"));
+    }
+
+    #[test]
+    fn named_ddw_inputs_are_dispatched_as_darkdraw() {
+        let data = concat!(
+            r#"{"type":"Dimensions","text":"1x1","frame":"SAUCE_record"}"#,
+            "\n",
+            r#"{"id":"1","type":"frame","duration_ms":25}"#,
+            "\n",
+            r#"{"x":0,"y":0,"text":"X","color":"15","frame":"1"}"#,
+        );
+        let document = render_named(data.as_bytes(), None, "scene.DDW").unwrap();
+        let frame = &document.animation.unwrap().frames[0];
+
+        assert_eq!(frame.duration, Some(Duration::from_millis(25)));
+        assert!(frame.utf8);
+        assert_eq!(frame.screen.cells[0].character, u16::from(b'X'));
     }
 
     #[test]

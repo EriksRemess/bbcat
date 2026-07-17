@@ -4,8 +4,9 @@
 //! escape whenever its foreground/background pair changes. Embedded fonts and
 //! 512-glyph XBin screens cannot be represented faithfully as Unicode, and
 //! RIPscrip has no character cells at all, so those require graphical output.
-//! Ansimation uses the same conversion but commits each detected screen state
-//! atomically, with its encoded byte count determining baud-paced frame timing.
+//! ANSI animation commits each detected screen state atomically, with its
+//! encoded byte count determining baud-paced frame timing. Formats with native
+//! timing, such as DDW, use generated UTF-8 frame data directly.
 
 use std::{
     io::{self, Write},
@@ -80,7 +81,7 @@ fn write_animation_at_baud_inner<W: Write>(
     if animation.frames.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "ANSI animation contains no frames",
+            "animation contains no frames",
         ));
     }
 
@@ -90,6 +91,7 @@ fn write_animation_at_baud_inner<W: Write>(
     // frame.
     let started = Instant::now();
     let mut source_bytes = 0_usize;
+    let mut elapsed = Duration::ZERO;
     let mut buffer = Vec::new();
     // Keep the classic ANSI style between delta frames.  Once an xterm colour
     // escape is seen it remains terminal-managed until an SGR reset returns us
@@ -115,13 +117,22 @@ fn write_animation_at_baud_inner<W: Write>(
                 buffer.extend_from_slice(b"\x1b[0m");
             }
         }
-        transcode_frame(&frame.data, &mut buffer, &mut style);
+        if frame.utf8 {
+            buffer.extend_from_slice(&frame.data);
+        } else {
+            transcode_frame(&frame.data, &mut buffer, &mut style);
+        }
         buffer.extend_from_slice(b"\x1b[?2026l");
         output.write_all(&buffer)?;
         output.flush()?;
 
-        source_bytes = source_bytes.saturating_add(frame.source_bytes);
-        sleep_until(started, transmission_time(source_bytes, baud));
+        if let Some(duration) = frame.duration {
+            elapsed = elapsed.saturating_add(scale_duration(duration, baud));
+            sleep_until(started, elapsed);
+        } else {
+            source_bytes = source_bytes.saturating_add(frame.source_bytes);
+            sleep_until(started, transmission_time(source_bytes, baud));
+        }
     }
 
     // Preserve the final frame even when the source ends with a clear-screen
@@ -414,6 +425,19 @@ fn transmission_time(bytes: usize, baud: u64) -> Duration {
     )
 }
 
+fn scale_duration(duration: Duration, baud: u64) -> Duration {
+    let nanoseconds = duration
+        .as_nanos()
+        .saturating_mul(u128::from(DEFAULT_ANIMATION_BAUD))
+        / u128::from(baud);
+    let seconds = nanoseconds / 1_000_000_000;
+    if seconds > u128::from(u64::MAX) {
+        Duration::MAX
+    } else {
+        Duration::new(seconds as u64, (nanoseconds % 1_000_000_000) as u32)
+    }
+}
+
 fn sleep_until(started: Instant, target: Duration) {
     if let Some(remaining) = target.checked_sub(started.elapsed()) {
         thread::sleep(remaining);
@@ -585,6 +609,8 @@ mod tests {
                     background: 0,
                 }]),
                 source_bytes: 1,
+                duration: None,
+                utf8: false,
                 data: b"\x1b[38;5;196m\x03".to_vec(),
             }],
             clear_on_finish: true,
@@ -611,6 +637,8 @@ mod tests {
                     background: 0,
                 }]),
                 source_bytes: 1,
+                duration: None,
+                utf8: false,
                 data: b"\x1b[HX".to_vec(),
             }],
             clear_on_finish: true,
@@ -635,6 +663,8 @@ mod tests {
                     background: 0,
                 }]),
                 source_bytes: 1,
+                duration: None,
+                utf8: false,
                 data: b"\x1b[1;30mX".to_vec(),
             }],
             clear_on_finish: false,
@@ -662,6 +692,20 @@ mod tests {
     fn animation_rates_are_source_bytes_per_second() {
         assert_eq!(transmission_time(1, 2_400), Duration::from_nanos(416_666));
         assert_eq!(transmission_time(4_608, 460_800), Duration::from_millis(10));
+    }
+
+    #[test]
+    fn native_frame_durations_scale_from_1x() {
+        let duration = Duration::from_millis(200);
+        assert_eq!(
+            scale_duration(duration, DEFAULT_ANIMATION_BAUD),
+            Duration::from_millis(200)
+        );
+        assert_eq!(scale_duration(duration, 57_600), Duration::from_millis(400));
+        assert_eq!(
+            scale_duration(duration, 230_400),
+            Duration::from_millis(100)
+        );
     }
 
     #[test]

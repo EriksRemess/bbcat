@@ -1,8 +1,8 @@
 # bbcat
 
-Dependency-free terminal viewer for CP437 ANSI and ansimation, DIZ, ADF,
-RIPscrip, and XBin art. It writes colored UTF-8 by default, with optional Kitty
-graphics and PNG output.
+Dependency-free terminal viewer for CP437 ANSI and ansimation, DarkDraw DDW,
+DIZ, ADF, RIPscrip, and XBin art. It writes colored UTF-8 by default, with
+optional Kitty graphics and PNG output.
 
 Browse and download BBS art packs at [16colo.rs](https://16colo.rs/).
 
@@ -59,12 +59,12 @@ UTF-8 output is intended for character art using the standard CP437 glyph set.
 Use Kitty or PNG output for RIPscrip, XBin 512-character fonts, or artwork whose
 embedded bitmap font must be reproduced exactly.
 
-## ANSI animation
+## Animation
 
-bbcat recognizes ansimation from repeated ANSI screen rewrites and plays it
-automatically when standard output is a terminal. Playback defaults to `1X`.
-Use `--baud RATE` to choose an animation frame rate or set the row-reveal speed
-for static ANSI and text:
+bbcat recognizes ansimation from repeated ANSI screen rewrites and DarkDraw
+DDW animation frames, then plays them automatically when standard output is a
+terminal. Playback defaults to `1X`. Use `--baud RATE` to choose an animation
+frame rate or set the row-reveal speed for static ANSI and text:
 
 ```console
 bbcat --baud 2400 animation.ans
@@ -77,9 +77,11 @@ bbcat --baud 4x animation.ans
 (230400), and `4X` (460800) are suggested familiar rates; run `bbcat --baud`
 to print the list. Any positive numeric rate is accepted, as is an `Nx`
 multiplier of 115200 (for example, `3X` is 345600). Animated playback uses each
-frame's source byte count to determine how long it remains visible. Static art
-uses the same smooth row reveal as `--slow`: `1X` is 25 milliseconds per row,
-with lower rates slower and higher rates faster. Terminals with
+frame's source byte count to determine how long it remains visible. DDW uses
+its source-defined per-frame duration at `1X`, scaled proportionally by the
+selected rate. Static art uses the same smooth row reveal as `--slow`: `1X` is
+25 milliseconds per row, with lower rates slower and higher rates faster.
+Terminals with
 synchronized-output support reveal each redraw atomically to avoid visible
 row-by-row tearing. Animation playback preserves CP437 text and source-defined
 16-color, 256-color, and true-color SGR sequences. An animation that explicitly
@@ -149,6 +151,13 @@ always retains its full dimensions.
   inverse video, blink/iCE colors, wrapping, SAUCE dimensions, and baud-paced
   ansimation are handled. Ansimation playback also preserves 256-color and
   true-color SGR sequences.
+- DarkDraw (`.DDW`) UTF-8 JSON Lines text art and animation. Base and
+  frame-specific objects are painted in source order; reusable group references
+  are expanded recursively at their positioned frame. Each DDW frame uses its
+  declared duration. A `Dimensions` metadata record is used when present;
+  otherwise bbcat infers the canvas from the positioned text. Terminal playback
+  preserves Unicode glyphs and 16- and 256-color styles; Kitty and PNG output
+  show the final frame with a CP437/VGA approximation where necessary.
 - XBin (`.XB`) with embedded palettes, 8- or 16-color backgrounds, embedded
   fonts up to 32 pixels high, 256- and 512-character modes, and XBin RLE.
 - ArtWorx Data Format (`.ADF`) version 1 with its embedded palette and 8x16
@@ -173,13 +182,13 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 
 | Option | Description |
 | --- | --- |
-| `-w COLS`, `--width COLS` | Override text width. ANSI/text accepts declared widths through 10,000 columns; untagged plain text is inferred through 1,000. XBin must match its header, ADF must be 80, and RIPscrip must be 640. |
+| `-w COLS`, `--width COLS` | Override text width. ANSI/text accepts declared widths through 10,000 columns; untagged plain text is inferred through 1,000. DDW and XBin must match their declared width; an untagged DDW may be widened but not narrowed. ADF must be 80, and RIPscrip must be 640. |
 | `--chunk-lines ROWS` | Set the number of character rows in each Kitty image strip, from 1 through 256. The default is `$LINES - 1`, clamped to 1 through 64, or 24 when `$LINES` is unavailable. |
 | `--kitty` | Use Kitty graphics instead of colored UTF-8. |
 | `--fit` | Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row. |
 | `--slow` | Reveal one character row at a time using a 25 ms delay. |
 | `--delay MS` | Enable slow mode with a delay from 1 through 10,000 ms per row. |
-| `--baud RATE` | Play ANSI animation by frame timing, or set static ANSI/text row-reveal speed. `1X` is the same 25 ms/row as `--slow`; rates scale it proportionally. Run `--baud` alone for familiar suggested values. |
+| `--baud RATE` | Play ANSI animation by source-byte timing or DDW animation by native frame timing, or set static ANSI/text row-reveal speed. `1X` is the same 25 ms/row as `--slow`; rates scale it proportionally. Run `--baud` alone for familiar suggested values. |
 | `--2x` | Double Kitty or PNG output width and height. Requires `--kitty` or `--output FILE`. |
 | `--sauce` | Show the available SAUCE title, author, group, and creation date below the artwork. |
 | `-o FILE`, `--output FILE` | Write an indexed-color PNG. Use `-` for standard output; requires exactly one input. |
