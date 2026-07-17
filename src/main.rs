@@ -10,6 +10,7 @@ mod terminal;
 
 const DEFAULT_DELAY_MS: u64 = 25;
 const MAX_DELAY_MS: u64 = 10_000;
+const SUGGESTED_ANIMATION_RATES: [u64; 7] = [2_400, 9_600, 14_400, 28_800, 38_400, 57_600, 115_200];
 
 struct Options {
     width: Option<usize>,
@@ -18,6 +19,7 @@ struct Options {
     kitty: bool,
     fit: bool,
     delay: Option<Duration>,
+    baud: Option<u64>,
     scale: usize,
     sauce: bool,
     files: Vec<String>,
@@ -25,7 +27,7 @@ struct Options {
 
 fn main() -> ExitCode {
     match run() {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(status) => status,
         Err(message) => {
             eprintln!("bbcat: {message}");
             ExitCode::FAILURE
@@ -33,9 +35,9 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<(), String> {
+fn run() -> Result<ExitCode, String> {
     let Some(options) = parse_args()? else {
-        return Ok(());
+        return Ok(ExitCode::SUCCESS);
     };
     if options.output.is_some() && options.files.len() != 1 {
         return Err("--output requires exactly one input file".to_owned());
@@ -43,8 +45,17 @@ fn run() -> Result<(), String> {
     if options.output.is_some() && options.delay.is_some() {
         return Err("--slow/--delay cannot be used with --output".to_owned());
     }
+    if options.output.is_some() && options.baud.is_some() {
+        return Err("--baud cannot be used with --output".to_owned());
+    }
     if options.output.is_some() && options.kitty {
         return Err("--output and --kitty cannot be used together".to_owned());
+    }
+    if options.kitty && options.baud.is_some() {
+        return Err("--baud cannot be used with --kitty".to_owned());
+    }
+    if options.delay.is_some() && options.baud.is_some() {
+        return Err("--slow/--delay and --baud cannot be used together".to_owned());
     }
     if options.output.is_some() && options.sauce {
         return Err("--sauce cannot be used with --output".to_owned());
@@ -71,12 +82,33 @@ fn run() -> Result<(), String> {
         return Err("cannot determine terminal width for Kitty output".to_owned());
     }
     let mut stdout = io::stdout().lock();
+    let mut input_error = false;
     for file in &options.files {
-        let data = read(file)?;
+        let data = match read(file) {
+            Ok(data) => data,
+            Err(error) => {
+                eprintln!("bbcat: {error}");
+                input_error = true;
+                continue;
+            }
+        };
         // All input formats become the same Screen here. The remaining branches
         // differ only in how that screen is serialized for the requested target.
-        let document = bbcat::render_named(&data, options.width, file)
-            .map_err(|error| format!("{file}: {error}"))?;
+        let document = match bbcat::render_named(&data, options.width, file) {
+            Ok(document) => document,
+            Err(error) => {
+                eprintln!("bbcat: {file}: {error}");
+                input_error = true;
+                continue;
+            }
+        };
+        if options.delay.is_some() && document.animation.is_some() {
+            eprintln!(
+                "bbcat: {file}: use --baud to control ANSI animation speed; --slow/--delay reveal static art by row"
+            );
+            input_error = true;
+            continue;
+        }
         if let Some(path) = &options.output {
             // File output is a single PNG containing the complete screen.
             let png = bbcat::encode_screen_scaled(
@@ -149,6 +181,23 @@ fn run() -> Result<(), String> {
                 )
                 .map_err(|error| format!("{file}: {error}"))?;
             }
+        } else if let Some(animation) = &document.animation
+            && (stdout_is_terminal || options.baud.is_some())
+        {
+            let baud = options.baud.unwrap_or(bbcat::DEFAULT_ANIMATION_BAUD);
+            bbcat::write_animation_at_baud(&mut stdout, animation, baud)
+                .map_err(|error| format!("{file}: {error}"))?;
+        } else if let Some(baud) = options.baud {
+            // Static art has no frame timing. Reuse the smooth row reveal,
+            // scaling its delay from the same 1X baud baseline as animation.
+            let delay = baud_row_delay(baud);
+            if let Some(columns) = terminal_columns {
+                bbcat::write_text_slow_cropped(&mut stdout, &document.screen, delay, columns)
+                    .map_err(|error| format!("{file}: {error}"))?;
+            } else {
+                bbcat::write_text_slow(&mut stdout, &document.screen, delay)
+                    .map_err(|error| format!("{file}: {error}"))?;
+            }
         } else if let Some(delay) = options.delay {
             // Plain terminal output maps CP437 cells to Unicode plus ANSI colors.
             if let Some(columns) = terminal_columns {
@@ -169,7 +218,11 @@ fn run() -> Result<(), String> {
             write_sauce(&mut stdout, document.sauce.as_ref())?;
         }
     }
-    Ok(())
+    Ok(if input_error {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    })
 }
 
 fn read(path: &str) -> Result<Vec<u8>, String> {
@@ -244,6 +297,7 @@ fn parse_args() -> Result<Option<Options>, String> {
     let mut kitty = false;
     let mut fit = false;
     let mut delay = None;
+    let mut baud = None;
     let mut scale = 1;
     let mut sauce = false;
     let mut files = Vec::new();
@@ -278,6 +332,7 @@ fn parse_args() -> Result<Option<Options>, String> {
                     arguments.next(),
                 )?));
             }
+            "--baud" => baud = Some(baud_rate(&argument, arguments.next())?),
             "--2x" => scale = 2,
             "--sauce" => sauce = true,
             "--" => {
@@ -302,6 +357,7 @@ fn parse_args() -> Result<Option<Options>, String> {
         kitty,
         fit,
         delay,
+        baud,
         scale,
         sauce,
         files,
@@ -328,10 +384,45 @@ fn milliseconds(option: &str, value: Option<String>) -> Result<u64, String> {
     Ok(value)
 }
 
+fn baud_rate(option: &str, value: Option<String>) -> Result<u64, String> {
+    let value = value.ok_or_else(|| baud_suggestions(option))?;
+    if let Some(multiplier) = value.strip_suffix('x').or_else(|| value.strip_suffix('X')) {
+        return multiplier
+            .parse::<u64>()
+            .ok()
+            .filter(|&multiplier| multiplier > 0)
+            .and_then(|multiplier| 115_200_u64.checked_mul(multiplier))
+            .ok_or_else(|| baud_suggestions(option));
+    }
+
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|&rate| rate > 0)
+        .ok_or_else(|| baud_suggestions(option))
+}
+
+fn baud_row_delay(baud: u64) -> Duration {
+    let nanoseconds =
+        u128::from(DEFAULT_DELAY_MS) * 1_000_000 * u128::from(bbcat::DEFAULT_ANIMATION_BAUD)
+            / u128::from(baud);
+    Duration::from_nanos(u64::try_from(nanoseconds).unwrap_or(u64::MAX))
+}
+
+fn baud_suggestions(option: &str) -> String {
+    let suggestions = SUGGESTED_ANIMATION_RATES
+        .iter()
+        .map(u64::to_string)
+        .chain(["1X".to_owned(), "2X".to_owned(), "4X".to_owned()])
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{option} requires a positive rate or Nx multiplier; try: {suggestions}")
+}
+
 fn print_help() {
     println!(
         r#"bbcat {}
-Render character art as UTF-8, or supported BBS art as Kitty graphics or PNG.
+Render character art, play ANSI animation, or write Kitty graphics and PNG.
 
 Usage: bbcat [OPTIONS] [FILE]...
 
@@ -345,6 +436,7 @@ Options:
       --fit                 Scale complete Kitty art to terminal width instead of cropping
       --slow                Reveal character art one row at a time (25 ms/row)
       --delay MS            Set the slow-mode row delay (1..=10000)
+      --baud RATE           Animation speed or static row-reveal speed: positive RATE or Nx (try --baud for suggestions; 1X is 25 ms/row)
       --2x                  Double Kitty or PNG output dimensions
       --sauce               Show a SAUCE caption below the artwork
   -o, --output FILE         Write a PNG file; use - for stdout
@@ -369,6 +461,45 @@ mod tests {
         ] {
             assert!(milliseconds("--delay", value).is_err());
         }
+    }
+
+    #[test]
+    fn validates_animation_baud_rates() {
+        for rate in SUGGESTED_ANIMATION_RATES {
+            assert_eq!(baud_rate("--baud", Some(rate.to_string())), Ok(rate));
+        }
+        assert_eq!(baud_rate("--baud", Some("2x".to_owned())), Ok(230_400));
+        assert_eq!(baud_rate("--baud", Some("4X".to_owned())), Ok(460_800));
+        assert_eq!(baud_rate("--baud", Some("3X".to_owned())), Ok(345_600));
+        assert_eq!(
+            baud_rate("--baud", Some("10000000".to_owned())),
+            Ok(10_000_000)
+        );
+        for value in [
+            None,
+            Some("0".to_owned()),
+            Some("0x".to_owned()),
+            Some("fast".to_owned()),
+        ] {
+            assert!(baud_rate("--baud", value).is_err());
+        }
+    }
+
+    #[test]
+    fn missing_baud_shows_the_suggested_rates() {
+        let error = baud_rate("--baud", None).unwrap_err();
+        assert!(error.contains("try: 2400, 9600, 14400"));
+        assert!(error.contains("1X, 2X, 4X"));
+    }
+
+    #[test]
+    fn baud_scales_the_static_row_delay_from_1x() {
+        assert_eq!(
+            baud_row_delay(bbcat::DEFAULT_ANIMATION_BAUD),
+            Duration::from_millis(DEFAULT_DELAY_MS)
+        );
+        assert_eq!(baud_row_delay(57_600), Duration::from_millis(50));
+        assert_eq!(baud_row_delay(230_400), Duration::from_micros(12_500));
     }
 
     #[test]

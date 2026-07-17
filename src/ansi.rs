@@ -49,6 +49,26 @@ pub(crate) struct Raster {
 
 pub(crate) const MAX_CELLS: usize = 10_000_000;
 
+pub(crate) struct ParsedAnsi {
+    pub screen: Screen,
+    pub frames: Vec<ParsedFrame>,
+    pub clear_on_finish: bool,
+}
+
+pub(crate) struct ParsedFrame {
+    pub screen: Screen,
+    pub source_bytes: usize,
+    pub data: Vec<u8>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum EscapeEvent {
+    None,
+    Home,
+    ClearDisplay,
+    Erase,
+}
+
 #[derive(Clone, Copy)]
 struct Style {
     foreground: u8,
@@ -86,12 +106,22 @@ struct Parser {
     max_written_row: Option<usize>,
 }
 
+#[cfg(test)]
 pub fn parse(
     bytes: &[u8],
     width: usize,
     declared_height: Option<usize>,
     ice_colors: bool,
 ) -> Result<Screen, String> {
+    Ok(parse_with_animation(bytes, width, declared_height, ice_colors)?.screen)
+}
+
+pub(crate) fn parse_with_animation(
+    bytes: &[u8],
+    width: usize,
+    declared_height: Option<usize>,
+    ice_colors: bool,
+) -> Result<ParsedAnsi, String> {
     // A SAUCE height is useful for preserving intentionally blank rows. Without
     // one, the backing grid grows only when cursor movement or output reaches it.
     let initial_cells = width
@@ -113,10 +143,42 @@ pub fn parse(
         max_written_row: None,
     };
 
+    let mut frames = Vec::new();
+    let mut stored_frame_cells = 0_usize;
+    let mut frame_start = 0_usize;
+    let mut dirty = false;
+    let mut clear_on_finish = false;
     let mut index = 0;
     while index < bytes.len() {
         match bytes[index] {
-            0x1b => index += parser.escape(&bytes[index..]),
+            0x1b => {
+                let event = escape_event(&bytes[index..]);
+                if matches!(event, EscapeEvent::Home | EscapeEvent::ClearDisplay) && dirty {
+                    let screen = parser.snapshot(declared_height)?;
+                    stored_frame_cells = stored_frame_cells
+                        .checked_add(screen.cells.len())
+                        .ok_or_else(animation_too_large)?;
+                    if stored_frame_cells > MAX_CELLS {
+                        return Err(animation_too_large());
+                    }
+                    frames.push(ParsedFrame {
+                        screen,
+                        source_bytes: index.saturating_sub(frame_start).max(1),
+                        data: bytes[frame_start..index].to_vec(),
+                    });
+                    frame_start = index;
+                    dirty = false;
+                }
+                index += parser.escape(&bytes[index..]);
+                match event {
+                    EscapeEvent::Erase => {
+                        dirty = true;
+                        clear_on_finish = false;
+                    }
+                    EscapeEvent::None | EscapeEvent::Home => {}
+                    EscapeEvent::ClearDisplay => clear_on_finish = true,
+                }
+            }
             b'\r' => {
                 parser.x = 0;
                 parser.pending_wrap = false;
@@ -136,28 +198,71 @@ pub fn parse(
             0x1a => index += 1,
             character => {
                 parser.put(character)?;
+                dirty = true;
+                clear_on_finish = false;
                 index += 1;
             }
         }
     }
 
-    let measured = parser.max_written_row.map_or(1, |row| row + 1);
-    let height = declared_height.unwrap_or(measured).max(measured).max(1);
-    parser.ensure_row(height - 1)?;
-    parser.cells.truncate(width * height);
-    Ok(Screen {
-        width,
-        height,
-        cells: parser.cells,
-        glyph_height: 16,
-        font: None,
-        palette: None,
-        utf8_supported: true,
-        raster: None,
-    })
+    if dirty {
+        let screen = parser.snapshot(declared_height)?;
+        stored_frame_cells = stored_frame_cells
+            .checked_add(screen.cells.len())
+            .ok_or_else(animation_too_large)?;
+        if stored_frame_cells > MAX_CELLS {
+            return Err(animation_too_large());
+        }
+        frames.push(ParsedFrame {
+            screen,
+            source_bytes: bytes.len().saturating_sub(frame_start).max(1),
+            data: bytes[frame_start..].to_vec(),
+        });
+    }
+
+    // Repeated homes/full clears delimit ansimation frames. A lone snapshot is
+    // merely the ordinary final state of a static ANSI file and is discarded.
+    if frames.len() >= 2 {
+        Ok(ParsedAnsi {
+            screen: frames.last().unwrap().screen.clone(),
+            frames,
+            clear_on_finish,
+        })
+    } else {
+        Ok(ParsedAnsi {
+            screen: parser.snapshot(declared_height)?,
+            frames: Vec::new(),
+            clear_on_finish: false,
+        })
+    }
 }
 
 impl Parser {
+    fn snapshot(&self, declared_height: Option<usize>) -> Result<Screen, String> {
+        let measured = self.max_written_row.map_or(1, |row| row + 1);
+        let height = declared_height.unwrap_or(measured).max(measured).max(1);
+        let required = self
+            .width
+            .checked_mul(height)
+            .ok_or_else(canvas_too_large)?;
+        if required > MAX_CELLS {
+            return Err(canvas_too_large());
+        }
+        let mut cells = self.cells.clone();
+        cells.resize(required, Cell::default());
+        cells.truncate(required);
+        Ok(Screen {
+            width: self.width,
+            height,
+            cells,
+            glyph_height: 16,
+            font: None,
+            palette: None,
+            utf8_supported: true,
+            raster: None,
+        })
+    }
+
     fn ensure_row(&mut self, row: usize) -> Result<(), String> {
         let required = row
             .checked_add(1)
@@ -392,8 +497,55 @@ impl Parser {
     }
 }
 
+fn escape_event(bytes: &[u8]) -> EscapeEvent {
+    if bytes.get(1) != Some(&b'[') {
+        return EscapeEvent::None;
+    }
+    let Some(relative_end) = bytes[2..]
+        .iter()
+        .position(|byte| (0x40..=0x7e).contains(byte))
+    else {
+        return EscapeEvent::None;
+    };
+    let end = relative_end + 2;
+    let command = bytes[end];
+    let raw = bytes[2..end].strip_prefix(b"?").unwrap_or(&bytes[2..end]);
+    let parameters: Vec<usize> = raw
+        .split(|&byte| byte == b';')
+        .map(|part| {
+            part.iter().fold(0_usize, |value, &digit| {
+                if digit.is_ascii_digit() {
+                    value
+                        .saturating_mul(10)
+                        .saturating_add((digit - b'0') as usize)
+                } else {
+                    value
+                }
+            })
+        })
+        .collect();
+
+    match command {
+        b'H' | b'f'
+            if parameters.first().copied().unwrap_or(1).max(1) == 1
+                && parameters.get(1).copied().unwrap_or(1).max(1) == 1 =>
+        {
+            EscapeEvent::Home
+        }
+        b'J' if matches!(parameters.first().copied().unwrap_or(0), 2 | 3) => {
+            EscapeEvent::ClearDisplay
+        }
+        b'J' | b'K' => EscapeEvent::Erase,
+        _ => EscapeEvent::None,
+    }
+}
+
 fn canvas_too_large() -> String {
     format!("ANSI canvas exceeds the {MAX_CELLS} cell safety limit")
+}
+
+fn animation_too_large() -> String {
+    format!("ANSI animation exceeds the {MAX_CELLS} stored-cell safety limit")
 }
 
 #[cfg(test)]

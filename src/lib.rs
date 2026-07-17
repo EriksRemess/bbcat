@@ -28,8 +28,9 @@ pub use kitty::{
 pub use png::{encode_screen, encode_screen_scaled};
 pub use sauce::Sauce;
 pub use text::{
-    write_screen as write_text, write_screen_cropped as write_text_cropped,
-    write_screen_slow as write_text_slow, write_screen_slow_cropped as write_text_slow_cropped,
+    DEFAULT_ANIMATION_BAUD, write_animation, write_animation_at_baud, write_screen as write_text,
+    write_screen_cropped as write_text_cropped, write_screen_slow as write_text_slow,
+    write_screen_slow_cropped as write_text_slow_cropped,
 };
 
 const MAX_ANSI_WIDTH: usize = 10_000;
@@ -39,6 +40,23 @@ const MAX_INFERRED_WIDTH: usize = 1_000;
 pub struct Document {
     pub screen: Screen,
     pub sauce: Option<Sauce>,
+    /// Complete screen states when repeated ANSI rewrites identify ansimation.
+    pub animation: Option<Animation>,
+}
+
+#[derive(Debug)]
+pub struct Animation {
+    pub frames: Vec<AnimationFrame>,
+    pub clear_on_finish: bool,
+}
+
+#[derive(Debug)]
+pub struct AnimationFrame {
+    pub screen: Screen,
+    /// Encoded ANSI bytes whose terminal effects produce this frame.
+    pub source_bytes: usize,
+    /// Sanitized during playback and committed as one synchronized update.
+    pub data: Vec<u8>,
 }
 
 pub fn render(data: &[u8], width_override: Option<usize>) -> Result<Document, String> {
@@ -85,11 +103,19 @@ fn render_inner(
     // use the ANSI state machine, while XBin already declares its complete grid.
     if rip_hint || rip::is_rip(binary_content) {
         let screen = rip::parse(binary_content, width_override)?;
-        return Ok(Document { screen, sauce });
+        return Ok(Document {
+            screen,
+            sauce,
+            animation: None,
+        });
     }
     if !is_xbin && (adf_hint || adf::is_adf(binary_content)) {
         let screen = adf::parse(binary_content, width_override)?;
-        return Ok(Document { screen, sauce });
+        return Ok(Document {
+            screen,
+            sauce,
+            animation: None,
+        });
     }
     let content = if is_xbin {
         binary_content
@@ -100,7 +126,11 @@ fn render_inner(
     };
     if is_xbin {
         let screen = xbin::parse(content, width_override)?;
-        return Ok(Document { screen, sauce });
+        return Ok(Document {
+            screen,
+            sauce,
+            animation: None,
+        });
     }
     // ANSI has no mandatory header. Prefer an explicit width, then SAUCE, then
     // the longest plain-text line; escape-containing files fall back to 80.
@@ -132,15 +162,35 @@ fn render_inner(
         .as_ref()
         .and_then(|s| (s.height > 0).then_some(s.height));
     let ice_colors = sauce.as_ref().is_some_and(|s| s.ice_colors);
-    let mut screen = ansi::parse(content, width, declared_height, ice_colors)?;
+    let mut parsed = ansi::parse_with_animation(content, width, declared_height, ice_colors)?;
     if let Some(selected) = sauce
         .as_ref()
         .and_then(|sauce| font::sauce_font(&sauce.font_name))
     {
-        screen.glyph_height = selected.glyph_height;
-        screen.font = Some(selected.glyphs.to_vec());
+        parsed.screen.glyph_height = selected.glyph_height;
+        parsed.screen.font = Some(selected.glyphs.to_vec());
+        for frame in &mut parsed.frames {
+            frame.screen.glyph_height = selected.glyph_height;
+            frame.screen.font = Some(selected.glyphs.to_vec());
+        }
     }
-    Ok(Document { screen, sauce })
+    let animation = (!parsed.frames.is_empty()).then(|| Animation {
+        frames: parsed
+            .frames
+            .into_iter()
+            .map(|frame| AnimationFrame {
+                screen: frame.screen,
+                source_bytes: frame.source_bytes,
+                data: frame.data,
+            })
+            .collect(),
+        clear_on_finish: parsed.clear_on_finish,
+    });
+    Ok(Document {
+        screen: parsed.screen,
+        sauce,
+        animation,
+    })
 }
 
 fn unsupported_format(data: &[u8]) -> Option<&'static str> {
@@ -222,6 +272,26 @@ mod tests {
         assert_eq!(doc.screen.width, 2);
         assert_eq!(doc.screen.cells[0].character, 0x03);
         assert_eq!(doc.screen.cells[1].character, 0x16);
+    }
+
+    #[test]
+    fn ansimation_keeps_frames_and_the_last_visible_screen() {
+        let data = b"\x1b[2J\x1b[H\x1b[1;1HA\x1b[1;1HB\x1b[2J";
+        let document = render(data, Some(1)).unwrap();
+
+        assert_eq!(document.screen.cells[0].character, u16::from(b'B'));
+        let animation = document.animation.as_ref().unwrap();
+        assert_eq!(animation.frames.len(), 2);
+        assert_eq!(animation.frames[0].source_bytes, 14);
+        assert_eq!(animation.frames[0].data, &data[..14]);
+        assert!(animation.clear_on_finish);
+    }
+
+    #[test]
+    fn a_single_home_is_not_misclassified_as_animation() {
+        let document = render(b"\x1b[HA", Some(1)).unwrap();
+        assert!(document.animation.is_none());
+        assert_eq!(document.screen.cells[0].character, u16::from(b'A'));
     }
 
     #[test]

@@ -4,14 +4,18 @@
 //! escape whenever its foreground/background pair changes. Embedded fonts and
 //! 512-glyph XBin screens cannot be represented faithfully as Unicode, and
 //! RIPscrip has no character cells at all, so those require graphical output.
+//! Ansimation uses the same conversion but commits each detected screen state
+//! atomically, with its encoded byte count determining baud-paced frame timing.
 
 use std::{
     io::{self, Write},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-use crate::{Screen, png::VGA_PALETTE};
+use crate::{Animation, Screen, png::VGA_PALETTE};
+
+pub const DEFAULT_ANIMATION_BAUD: u64 = 115_200;
 
 pub(crate) const CP437: [char; 256] = [
     '\u{20}', '\u{263a}', '\u{263b}', '\u{2665}', '\u{2666}', '\u{2663}', '\u{2660}', '\u{2022}',
@@ -48,6 +52,372 @@ pub(crate) const CP437: [char; 256] = [
 
 pub fn write_screen<W: Write>(output: &mut W, screen: &Screen) -> io::Result<()> {
     write_screen_inner(output, screen, None, screen.width)
+}
+
+pub fn write_animation<W: Write>(output: &mut W, animation: &Animation) -> io::Result<()> {
+    write_animation_at_baud(output, animation, DEFAULT_ANIMATION_BAUD)
+}
+
+pub fn write_animation_at_baud<W: Write>(
+    output: &mut W,
+    animation: &Animation,
+    baud: u64,
+) -> io::Result<()> {
+    write_animation_at_baud_inner(output, animation, baud)
+}
+
+fn write_animation_at_baud_inner<W: Write>(
+    output: &mut W,
+    animation: &Animation,
+    baud: u64,
+) -> io::Result<()> {
+    if baud == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "animation baud rate must be non-zero",
+        ));
+    }
+    if animation.frames.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "ANSI animation contains no frames",
+        ));
+    }
+
+    // A home/full-clear boundary commits the preceding ANSI updates as one
+    // frame. The selected viewer rate controls its duration from the encoded
+    // byte count; synchronized-output terminals never expose a half-drawn
+    // frame.
+    let started = Instant::now();
+    let mut source_bytes = 0_usize;
+    let mut buffer = Vec::new();
+    // Keep the classic ANSI style between delta frames.  Once an xterm colour
+    // escape is seen it remains terminal-managed until an SGR reset returns us
+    // to a known VGA style.
+    let mut style = Some(AnimationStyle::default());
+    let clears_before_playback = animation
+        .frames
+        .first()
+        .is_some_and(|frame| source_uses_absolute_top(&frame.data));
+    for (frame_index, frame) in animation.frames.iter().enumerate() {
+        buffer.clear();
+        buffer.extend_from_slice(b"\x1b[?2026h");
+        if frame_index == 0 {
+            if clears_before_playback {
+                // An absolute top-left animation owns the terminal canvas.
+                // Clear it atomically before its first frame is revealed.
+                buffer.extend_from_slice(b"\x1b[2J\x1b[H\x1b[0m");
+            } else {
+                // Preserve the existing terminal for animations that draw
+                // relative to their insertion point.
+                output.write_all(b"\x1b[0m\r\n")?;
+                output.flush()?;
+                buffer.extend_from_slice(b"\x1b[0m");
+            }
+        }
+        transcode_frame(&frame.data, &mut buffer, &mut style);
+        buffer.extend_from_slice(b"\x1b[?2026l");
+        output.write_all(&buffer)?;
+        output.flush()?;
+
+        source_bytes = source_bytes.saturating_add(frame.source_bytes);
+        sleep_until(started, transmission_time(source_bytes, baud));
+    }
+
+    // Preserve the final frame even when the source ends with a clear-screen
+    // command. An absolute canvas needs an absolute prompt position; a
+    // relative animation can continue naturally from its final cursor.
+    if clears_before_playback {
+        let final_row = animation
+            .frames
+            .last()
+            .expect("validated non-empty animation")
+            .screen
+            .height;
+        write!(output, "\x1b[0m\x1b[{final_row};1H\r\n")?;
+    } else {
+        output.write_all(b"\x1b[0m\r\n")?;
+    }
+    output.flush()
+}
+
+fn source_uses_absolute_top(input: &[u8]) -> bool {
+    let mut index = 0;
+    while index + 2 < input.len() {
+        if input[index] != 0x1b || input[index + 1] != b'[' {
+            index += 1;
+            continue;
+        }
+        let Some(relative_end) = input[index + 2..]
+            .iter()
+            .position(|byte| (0x40..=0x7e).contains(byte))
+        else {
+            break;
+        };
+        let end = index + relative_end + 2;
+        if matches!(input[end], b'H' | b'f') && cursor_is_absolute_top(&input[index + 2..end]) {
+            return true;
+        }
+        index = end + 1;
+    }
+    false
+}
+
+fn cursor_is_absolute_top(parameters: &[u8]) -> bool {
+    let mut parameters = parameters.split(|&byte| byte == b';');
+    let row = cursor_parameter(parameters.next());
+    let column = cursor_parameter(parameters.next());
+    row == Some(1) && column == Some(1)
+}
+
+fn cursor_parameter(parameter: Option<&[u8]>) -> Option<usize> {
+    let parameter = parameter.unwrap_or_default();
+    if parameter.is_empty() {
+        Some(1)
+    } else {
+        std::str::from_utf8(parameter)
+            .ok()?
+            .parse::<usize>()
+            .ok()
+            .map(|value| value.max(1))
+    }
+}
+
+fn transcode_frame(input: &[u8], output: &mut Vec<u8>, style: &mut Option<AnimationStyle>) {
+    let mut index = 0_usize;
+    while index < input.len() {
+        let consumed = match input[index] {
+            0x1a => break,
+            0x1b => transcode_escape(&input[index..], output, style),
+            b'\r' | b'\n' | b'\t' => {
+                output.push(input[index]);
+                1
+            }
+            character => {
+                let mut encoded = [0_u8; 4];
+                output.extend_from_slice(
+                    CP437[usize::from(character)]
+                        .encode_utf8(&mut encoded)
+                        .as_bytes(),
+                );
+                1
+            }
+        };
+        index += consumed;
+    }
+}
+
+fn transcode_escape(
+    input: &[u8],
+    output: &mut Vec<u8>,
+    style: &mut Option<AnimationStyle>,
+) -> usize {
+    let Some(&second) = input.get(1) else {
+        return 1;
+    };
+    if second != b'[' {
+        match second {
+            b'7' | b'8' => output.extend_from_slice(&input[..2]),
+            // Do not forward a destructive full terminal reset. This is the
+            // cursor/style subset implemented by bbcat's ANSI state machine.
+            b'c' => output.extend_from_slice(b"\x1b[0m\x1b[H"),
+            _ => {}
+        }
+        return 2;
+    }
+
+    let Some(relative_end) = input[2..]
+        .iter()
+        .position(|byte| (0x40..=0x7e).contains(byte))
+    else {
+        return input.len();
+    };
+    let end = relative_end + 2;
+    let command = input[end];
+    let raw = &input[2..end];
+    let standard_parameters = raw
+        .iter()
+        .all(|byte| byte.is_ascii_digit() || *byte == b';');
+    let supported = standard_parameters
+        && matches!(
+            command,
+            b'm' | b'A'
+                | b'B'
+                | b'C'
+                | b'D'
+                | b'E'
+                | b'F'
+                | b'G'
+                | b'`'
+                | b'd'
+                | b'H'
+                | b'f'
+                | b'J'
+                | b'K'
+                | b's'
+                | b'u'
+        )
+        || matches!(command, b'h' | b'l') && raw == b"?7";
+    if supported {
+        match command {
+            b'm' => transcode_sgr(raw, &input[..=end], output, style),
+            // Erase operations use the terminal's current background and
+            // extend to its edge, not the source art's edge.  The parser has
+            // already included the actual canvas cells in each frame, so
+            // replaying these would leak a frame's background into the rest
+            // of a wide terminal window.
+            b'J' | b'K' => {}
+            _ => output.extend_from_slice(&input[..=end]),
+        }
+    }
+    end + 1
+}
+
+#[derive(Clone, Copy)]
+struct AnimationStyle {
+    foreground: u8,
+    background: u8,
+    bold: bool,
+    blink: bool,
+    inverse: bool,
+}
+
+impl Default for AnimationStyle {
+    fn default() -> Self {
+        Self {
+            foreground: 7,
+            background: 0,
+            bold: false,
+            blink: false,
+            inverse: false,
+        }
+    }
+}
+
+fn transcode_sgr(
+    raw: &[u8],
+    original: &[u8],
+    output: &mut Vec<u8>,
+    style: &mut Option<AnimationStyle>,
+) {
+    let Some(parameters) = sgr_parameters(raw) else {
+        // Colons and private SGR extensions are terminal-specific.  Preserve
+        // them, but do not apply subsequent classic colours against a style we
+        // can no longer know.
+        output.extend_from_slice(original);
+        *style = None;
+        return;
+    };
+
+    if !parameters.iter().copied().all(is_classic_sgr) {
+        // xterm 256/true-colour ANSI is already expressed in the terminal's
+        // colour space.  Forward it intact (rick.txt relies on this), then wait
+        // for a reset before resuming exact VGA palette conversion.
+        output.extend_from_slice(original);
+        *style = None;
+        return;
+    }
+
+    if let Some(active_style) = style.as_mut() {
+        for &parameter in &parameters {
+            active_style.apply(parameter);
+        }
+        write_vga_style(output, *active_style);
+        return;
+    }
+
+    let Some(reset) = parameters.iter().rposition(|&parameter| parameter == 0) else {
+        output.extend_from_slice(original);
+        return;
+    };
+    let mut restored = AnimationStyle::default();
+    for &parameter in &parameters[reset + 1..] {
+        restored.apply(parameter);
+    }
+    write_vga_style(output, restored);
+    *style = Some(restored);
+}
+
+fn sgr_parameters(raw: &[u8]) -> Option<Vec<usize>> {
+    if raw.is_empty() {
+        return Some(vec![0]);
+    }
+    raw.split(|&byte| byte == b';')
+        .map(|part| {
+            if part.is_empty() {
+                return Some(0);
+            }
+            std::str::from_utf8(part).ok()?.parse().ok()
+        })
+        .collect()
+}
+
+fn is_classic_sgr(parameter: usize) -> bool {
+    matches!(
+        parameter,
+        0 | 1 | 5 | 6 | 7 | 22 | 25 | 27 | 30..=37 | 39 | 40..=47 | 49 | 90..=97 | 100..=107
+    )
+}
+
+impl AnimationStyle {
+    fn apply(&mut self, parameter: usize) {
+        match parameter {
+            0 => *self = Self::default(),
+            1 => self.bold = true,
+            5 | 6 => self.blink = true,
+            7 => self.inverse = true,
+            22 => self.bold = false,
+            25 => self.blink = false,
+            27 => self.inverse = false,
+            30..=37 => self.foreground = (parameter - 30) as u8,
+            39 => self.foreground = 7,
+            40..=47 => self.background = (parameter - 40) as u8,
+            49 => self.background = 0,
+            90..=97 => {
+                self.foreground = (parameter - 90 + 8) as u8;
+                self.bold = false;
+            }
+            100..=107 => self.background = (parameter - 100 + 8) as u8,
+            _ => unreachable!("classic SGR parameters were validated"),
+        }
+    }
+}
+
+fn write_vga_style(output: &mut Vec<u8>, style: AnimationStyle) {
+    let mut foreground = style.foreground;
+    let background = style.background;
+    if style.bold && foreground < 8 {
+        foreground += 8;
+    }
+    let (foreground, background) = if style.inverse {
+        (background, foreground)
+    } else {
+        (foreground, background)
+    };
+    let foreground = VGA_PALETTE[usize::from(foreground)];
+    let background = VGA_PALETTE[usize::from(background)];
+    write!(
+        output,
+        "\x1b[38;2;{};{};{};48;2;{};{};{}m",
+        foreground[0], foreground[1], foreground[2], background[0], background[1], background[2]
+    )
+    .expect("writing to a byte buffer cannot fail");
+}
+
+fn transmission_time(bytes: usize, baud: u64) -> Duration {
+    // Match ANSI viewers that treat their labelled baud setting as playback
+    // throughput. This makes 2X and 4X exact multiples of the 115200 preset.
+    let nanoseconds = bytes as u128 * 1_000_000_000 / u128::from(baud);
+    Duration::new(
+        (nanoseconds / 1_000_000_000) as u64,
+        (nanoseconds % 1_000_000_000) as u32,
+    )
+}
+
+fn sleep_until(started: Instant, target: Duration) {
+    if let Some(remaining) = target.checked_sub(started.elapsed()) {
+        thread::sleep(remaining);
+    }
 }
 
 pub fn write_screen_cropped<W: Write>(
@@ -99,24 +469,7 @@ fn write_screen_inner<W: Write>(
             "UTF-8 crop width must be non-zero",
         ));
     }
-    if screen.raster.is_some() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "UTF-8 output is not useful for RIPscrip graphics; use --kitty or --output FILE",
-        ));
-    }
-    if screen.cells.iter().any(|cell| cell.character > 255) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "UTF-8 output cannot represent XBin 512-character font glyphs",
-        ));
-    }
-    if !screen.utf8_supported {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "UTF-8 output cannot represent a custom embedded bitmap font; use --kitty or --output FILE",
-        ));
-    }
+    validate_text_screen(screen)?;
     let palette = screen.palette.unwrap_or(VGA_PALETTE);
 
     for (row_index, row) in screen.cells.chunks_exact(screen.width).enumerate() {
@@ -157,10 +510,32 @@ fn write_screen_inner<W: Write>(
     output.flush()
 }
 
+fn validate_text_screen(screen: &Screen) -> io::Result<()> {
+    if screen.raster.is_some() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "UTF-8 output is not useful for RIPscrip graphics; use --kitty or --output FILE",
+        ));
+    }
+    if screen.cells.iter().any(|cell| cell.character > 255) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "UTF-8 output cannot represent XBin 512-character font glyphs",
+        ));
+    }
+    if !screen.utf8_supported {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "UTF-8 output cannot represent a custom embedded bitmap font; use --kitty or --output FILE",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Cell;
+    use crate::{Animation, AnimationFrame, Cell};
 
     fn screen(cells: Vec<Cell>) -> Screen {
         Screen {
@@ -198,6 +573,95 @@ mod tests {
             String::from_utf8(output).unwrap(),
             "\x1b[38;2;170;0;0;48;2;0;170;0m♥█\x1b[0m\r\n"
         );
+    }
+
+    #[test]
+    fn relative_animation_preserves_the_existing_terminal() {
+        let animation = Animation {
+            frames: vec![AnimationFrame {
+                screen: screen(vec![Cell {
+                    character: 0x03,
+                    foreground: 7,
+                    background: 0,
+                }]),
+                source_bytes: 1,
+                data: b"\x1b[38;5;196m\x03".to_vec(),
+            }],
+            clear_on_finish: true,
+        };
+        let mut output = Vec::new();
+
+        write_animation_at_baud(&mut output, &animation, u64::MAX).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.starts_with("\x1b[0m\r\n\x1b[?2026h\x1b[0m"));
+        assert!(output.contains("\x1b[38;5;196m"));
+        assert!(output.contains('♥'));
+        assert!(output.ends_with("\x1b[0m\r\n"));
+        assert!(!output.contains("\x1b[2J"));
+    }
+
+    #[test]
+    fn absolute_top_animation_clears_and_preserves_the_last_frame() {
+        let animation = Animation {
+            frames: vec![AnimationFrame {
+                screen: screen(vec![Cell {
+                    character: u16::from(b'X'),
+                    foreground: 7,
+                    background: 0,
+                }]),
+                source_bytes: 1,
+                data: b"\x1b[HX".to_vec(),
+            }],
+            clear_on_finish: true,
+        };
+        let mut output = Vec::new();
+
+        write_animation_at_baud(&mut output, &animation, u64::MAX).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.starts_with("\x1b[?2026h\x1b[2J\x1b[H\x1b[0m"));
+        assert!(output.contains('X'));
+        assert!(output.ends_with("\x1b[0m\x1b[1;1H\r\n"));
+    }
+
+    #[test]
+    fn animation_maps_classic_sgr_to_the_vga_palette() {
+        let animation = Animation {
+            frames: vec![AnimationFrame {
+                screen: screen(vec![Cell {
+                    character: u16::from(b'X'),
+                    foreground: 8,
+                    background: 0,
+                }]),
+                source_bytes: 1,
+                data: b"\x1b[1;30mX".to_vec(),
+            }],
+            clear_on_finish: false,
+        };
+        let mut output = Vec::new();
+
+        write_animation_at_baud(&mut output, &animation, u64::MAX).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("\x1b[38;2;85;85;85;48;2;0;0;0mX"));
+        assert!(!output.contains("\x1b[1;30m"));
+    }
+
+    #[test]
+    fn animation_discards_terminal_wide_erase_sequences() {
+        let mut output = Vec::new();
+        let mut style = Some(AnimationStyle::default());
+
+        transcode_frame(b"\x1b[2J\x1b[KX", &mut output, &mut style);
+
+        assert_eq!(output, b"X");
+    }
+
+    #[test]
+    fn animation_rates_are_source_bytes_per_second() {
+        assert_eq!(transmission_time(1, 2_400), Duration::from_nanos(416_666));
+        assert_eq!(transmission_time(4_608, 460_800), Duration::from_millis(10));
     }
 
     #[test]

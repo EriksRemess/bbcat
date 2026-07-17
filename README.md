@@ -1,8 +1,8 @@
 # bbcat
 
-Dependency-free terminal viewer for CP437 ANSI, DIZ, ADF, RIPscrip, and XBin
-art. It writes colored UTF-8 by default, with optional Kitty graphics and PNG
-output.
+Dependency-free terminal viewer for CP437 ANSI and ansimation, DIZ, ADF,
+RIPscrip, and XBin art. It writes colored UTF-8 by default, with optional Kitty
+graphics and PNG output.
 
 Browse and download BBS art packs at [16colo.rs](https://16colo.rs/).
 
@@ -31,6 +31,7 @@ bbcat --output preview.png art.adf
 bbcat --output - art.ans > preview.png
 bbcat --2x --kitty art.ans
 bbcat --sauce art.ans
+bbcat --baud 4x animation.ans
 ```
 
 ## Output modes
@@ -52,11 +53,44 @@ width.
 
 PNG mode requires exactly one input file. Use `--output -` to pipe or redirect
 the PNG from standard output. PNG mode cannot be combined with `--kitty`,
-`--slow`, or `--delay`.
+`--slow`, `--delay`, or `--baud`.
 
 UTF-8 output is intended for character art using the standard CP437 glyph set.
 Use Kitty or PNG output for RIPscrip, XBin 512-character fonts, or artwork whose
 embedded bitmap font must be reproduced exactly.
+
+## ANSI animation
+
+bbcat recognizes ansimation from repeated ANSI screen rewrites and plays it
+automatically when standard output is a terminal. Playback defaults to `1X`.
+Use `--baud RATE` to choose an animation frame rate or set the row-reveal speed
+for static ANSI and text:
+
+```console
+bbcat --baud 2400 animation.ans
+bbcat --baud 57600 animation.ans
+bbcat --baud 2x animation.ans
+bbcat --baud 4x animation.ans
+```
+
+`2400`, `9600`, `14400`, `28800`, `38400`, `57600`, `115200` (`1X`), `2X`
+(230400), and `4X` (460800) are suggested familiar rates; run `bbcat --baud`
+to print the list. Any positive numeric rate is accepted, as is an `Nx`
+multiplier of 115200 (for example, `3X` is 345600). Animated playback uses each
+frame's source byte count to determine how long it remains visible. Static art
+uses the same smooth row reveal as `--slow`: `1X` is 25 milliseconds per row,
+with lower rates slower and higher rates faster. Terminals with
+synchronized-output support reveal each redraw atomically to avoid visible
+row-by-row tearing. Animation playback preserves CP437 text and source-defined
+16-color, 256-color, and true-color SGR sequences. An animation that explicitly
+homes to the terminal's top-left clears the canvas before playback; relative
+animations leave the terminal intact. Both retain their final frame and return
+the shell prompt below it.
+
+Redirected UTF-8 output and Kitty or PNG output render the last visible state
+instead of replaying the animation. Supplying `--baud` explicitly replays an
+animation or uses the static row reveal even when UTF-8 output is redirected.
+`--baud` cannot be combined with Kitty, PNG, `--slow`, or `--delay`.
 
 ## Slow mode
 
@@ -71,8 +105,9 @@ bbcat --kitty --slow art.ans
 milliseconds. Both UTF-8 and Kitty modes flush each row before waiting; Kitty
 mode automatically uses one image strip per character row.
 
-Slow mode is not supported with PNG output or RIPscrip raster graphics. In
-Kitty slow mode, `--chunk-lines` has no effect.
+Slow mode is not supported with ANSI animation, PNG output, or RIPscrip raster
+graphics. Use `--baud` for baud-paced ANSI/text output. In Kitty slow mode,
+`--chunk-lines` has no effect.
 
 ## SAUCE metadata
 
@@ -111,7 +146,9 @@ always retains its full dimensions.
 
 - ANSI and plain CP437 text, including `.ANS`, `.DIZ`, `.ASC`, `.NFO`, `.MEM`,
   and `.TXT`. ANSI cursor movement, erasing, standard and bright colors,
-  inverse video, blink/iCE colors, wrapping, and SAUCE dimensions are handled.
+  inverse video, blink/iCE colors, wrapping, SAUCE dimensions, and baud-paced
+  ansimation are handled. Ansimation playback also preserves 256-color and
+  true-color SGR sequences.
 - XBin (`.XB`) with embedded palettes, 8- or 16-color backgrounds, embedded
   fonts up to 32 pixels high, 256- and 512-character modes, and XBin RLE.
 - ArtWorx Data Format (`.ADF`) version 1 with its embedded palette and 8x16
@@ -129,7 +166,8 @@ plain ANSI/text input.
 Common raster image inputs such as PNG, GIF, JPEG, WebP, TIFF, ICO, BMP, and
 QOI are rejected by content with an explanatory error instead of being parsed
 as character art. Malformed, truncated, oversized, or unsupported BBS inputs
-also produce a non-zero exit status and a filename-scoped error.
+also produce a non-zero exit status and a filename-scoped error. With multiple
+inputs, bbcat reports a rejected file and continues with the remaining files.
 
 ## Options
 
@@ -141,6 +179,7 @@ also produce a non-zero exit status and a filename-scoped error.
 | `--fit` | Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row. |
 | `--slow` | Reveal one character row at a time using a 25 ms delay. |
 | `--delay MS` | Enable slow mode with a delay from 1 through 10,000 ms per row. |
+| `--baud RATE` | Play ANSI animation by frame timing, or set static ANSI/text row-reveal speed. `1X` is the same 25 ms/row as `--slow`; rates scale it proportionally. Run `--baud` alone for familiar suggested values. |
 | `--2x` | Double Kitty or PNG output width and height. Requires `--kitty` or `--output FILE`. |
 | `--sauce` | Show the available SAUCE title, author, group, and creation date below the artwork. |
 | `-o FILE`, `--output FILE` | Write an indexed-color PNG. Use `-` for standard output; requires exactly one input. |
