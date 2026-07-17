@@ -19,6 +19,7 @@ struct Options {
     fit: bool,
     delay: Option<Duration>,
     scale: usize,
+    sauce: bool,
     files: Vec<String>,
 }
 
@@ -44,6 +45,9 @@ fn run() -> Result<(), String> {
     }
     if options.output.is_some() && options.kitty {
         return Err("--output and --kitty cannot be used together".to_owned());
+    }
+    if options.output.is_some() && options.sauce {
+        return Err("--sauce cannot be used with --output".to_owned());
     }
     if options.fit && !options.kitty {
         return Err("--fit requires --kitty".to_owned());
@@ -161,6 +165,9 @@ fn run() -> Result<(), String> {
             bbcat::write_text(&mut stdout, &document.screen)
                 .map_err(|error| format!("{file}: {error}"))?;
         }
+        if options.sauce {
+            write_sauce(&mut stdout, document.sauce.as_ref())?;
+        }
     }
     Ok(())
 }
@@ -188,6 +195,45 @@ fn write_png<W: io::Write>(output: &mut W, path: &Path, png: &[u8]) -> Result<()
     }
 }
 
+fn write_sauce<W: io::Write>(output: &mut W, sauce: Option<&bbcat::Sauce>) -> Result<(), String> {
+    let Some(sauce) = sauce else {
+        return Ok(());
+    };
+
+    let date = sauce_date(&sauce.date);
+    let mut details = Vec::new();
+    if !sauce.author.is_empty() {
+        details.push(format!("by {}", sauce.author));
+    }
+    if !sauce.group.is_empty() {
+        details.push(sauce.group.clone());
+    }
+    if !date.is_empty() {
+        details.push(date);
+    }
+    if sauce.title.is_empty() && details.is_empty() {
+        return Ok(());
+    }
+
+    writeln!(output).map_err(|error| format!("stdout: {error}"))?;
+    if !sauce.title.is_empty() {
+        writeln!(output, "\x1b[1m{}\x1b[0m", sauce.title)
+            .map_err(|error| format!("stdout: {error}"))?;
+    }
+    if !details.is_empty() {
+        writeln!(output, "{}", details.join(" · ")).map_err(|error| format!("stdout: {error}"))?;
+    }
+    writeln!(output).map_err(|error| format!("stdout: {error}"))
+}
+
+fn sauce_date(date: &str) -> String {
+    if date.len() == 8 && date.bytes().all(|byte| byte.is_ascii_digit()) {
+        format!("{}-{}-{}", &date[..4], &date[4..6], &date[6..])
+    } else {
+        date.to_owned()
+    }
+}
+
 fn parse_args() -> Result<Option<Options>, String> {
     let mut width = None;
     let mut chunk_lines = env::var("LINES")
@@ -199,6 +245,7 @@ fn parse_args() -> Result<Option<Options>, String> {
     let mut fit = false;
     let mut delay = None;
     let mut scale = 1;
+    let mut sauce = false;
     let mut files = Vec::new();
     let mut arguments = env::args().skip(1);
     while let Some(argument) = arguments.next() {
@@ -232,6 +279,7 @@ fn parse_args() -> Result<Option<Options>, String> {
                 )?));
             }
             "--2x" => scale = 2,
+            "--sauce" => sauce = true,
             "--" => {
                 files.extend(arguments);
                 break;
@@ -255,6 +303,7 @@ fn parse_args() -> Result<Option<Options>, String> {
         fit,
         delay,
         scale,
+        sauce,
         files,
     }))
 }
@@ -297,6 +346,7 @@ Options:
       --slow                Reveal character art one row at a time (25 ms/row)
       --delay MS            Set the slow-mode row delay (1..=10000)
       --2x                  Double Kitty or PNG output dimensions
+      --sauce               Show a SAUCE caption below the artwork
   -o, --output FILE         Write a PNG file; use - for stdout
   -h, --help                Print help
   -V, --version             Print version"#,
@@ -326,5 +376,37 @@ mod tests {
         let mut output = Vec::new();
         write_png(&mut output, Path::new("-"), b"PNG").unwrap();
         assert_eq!(output, b"PNG");
+    }
+
+    #[test]
+    fn writes_gallery_style_sauce_caption() {
+        let mut data = [0_u8; 128];
+        data[..7].copy_from_slice(b"SAUCE00");
+        data[7..11].copy_from_slice(b"Demo");
+        data[42..48].copy_from_slice(b"Artist");
+        data[62..67].copy_from_slice(b"Group");
+        data[82..90].copy_from_slice(b"19940630");
+        let sauce = bbcat::Sauce::parse(&data).unwrap();
+        let mut output = Vec::new();
+
+        write_sauce(&mut output, Some(&sauce)).unwrap();
+
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "\n\x1b[1mDemo\x1b[0m\nby Artist · Group · 1994-06-30\n\n"
+        );
+    }
+
+    #[test]
+    fn omits_caption_without_sauce() {
+        let mut output = Vec::new();
+        write_sauce(&mut output, None).unwrap();
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn preserves_nonstandard_sauce_dates() {
+        assert_eq!(sauce_date("19940630"), "1994-06-30");
+        assert_eq!(sauce_date("SUMMER94"), "SUMMER94");
     }
 }

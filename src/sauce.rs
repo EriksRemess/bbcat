@@ -57,7 +57,10 @@ fn field(bytes: &[u8]) -> String {
         .iter()
         .rposition(|&byte| byte != 0 && byte != b' ')
         .map_or(0, |position| position + 1);
-    bytes[..end].iter().map(|&byte| char::from(byte)).collect()
+    bytes[..end]
+        .iter()
+        .map(|&byte| crate::text::CP437[usize::from(byte)])
+        .collect()
 }
 
 #[cfg(test)]
@@ -94,5 +97,17 @@ mod tests {
 
         let sauce = Sauce::parse(&data).unwrap();
         assert_eq!(sauce.content(&data), &[b'X', 0x1a]);
+    }
+
+    #[test]
+    fn decodes_text_fields_as_cp437() {
+        let mut data = Vec::new();
+        let mut record = [0_u8; 128];
+        record[..7].copy_from_slice(b"SAUCE00");
+        record[7..11].copy_from_slice(&[b'C', b'a', b'f', 0x82]);
+        data.extend(record);
+
+        let sauce = Sauce::parse(&data).unwrap();
+        assert_eq!(sauce.title, "Café");
     }
 }

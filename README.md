@@ -30,6 +30,7 @@ bbcat --kitty scene.xb
 bbcat --output preview.png art.adf
 bbcat --output - art.ans > preview.png
 bbcat --2x --kitty art.ans
+bbcat --sauce art.ans
 ```
 
 ## Output modes
@@ -72,6 +73,14 @@ mode automatically uses one image strip per character row.
 
 Slow mode is not supported with PNG output or RIPscrip raster graphics. In
 Kitty slow mode, `--chunk-lines` has no effect.
+
+## SAUCE metadata
+
+Use `--sauce` to show an artwork's available SAUCE title, author, group, and
+creation date as a compact gallery-style caption below the rendered art. Files
+without descriptive SAUCE metadata render without a caption. The option works
+with UTF-8 and Kitty output, including multiple input files, but cannot be
+combined with PNG output.
 
 ## 2x scaling
 
@@ -133,6 +142,7 @@ also produce a non-zero exit status and a filename-scoped error.
 | `--slow` | Reveal one character row at a time using a 25 ms delay. |
 | `--delay MS` | Enable slow mode with a delay from 1 through 10,000 ms per row. |
 | `--2x` | Double Kitty or PNG output width and height. Requires `--kitty` or `--output FILE`. |
+| `--sauce` | Show the available SAUCE title, author, group, and creation date below the artwork. |
 | `-o FILE`, `--output FILE` | Write an indexed-color PNG. Use `-` for standard output; requires exactly one input. |
 | `-h`, `--help` | Print command help. |
 | `-V`, `--version` | Print the bbcat version. |
