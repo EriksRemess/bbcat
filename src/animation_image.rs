@@ -19,6 +19,7 @@ struct FrameImage {
     height: u32,
 }
 
+/// Encodes decoded animation frames as a looping indexed-color APNG.
 pub fn encode_animation_apng(
     animation: &Animation,
     baud: u64,
@@ -51,6 +52,7 @@ pub fn encode_animation_apng(
     Ok(output)
 }
 
+/// Encodes decoded animation frames as a looping 16-color GIF.
 pub fn encode_animation_gif(
     animation: &Animation,
     baud: u64,

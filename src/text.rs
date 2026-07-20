@@ -16,6 +16,7 @@ use std::{
 
 use crate::{Animation, Screen, png::VGA_PALETTE};
 
+/// Default ANSI playback rate and the baseline for native frame timing.
 pub const DEFAULT_ANIMATION_BAUD: u64 = 115_200;
 
 pub(crate) const CP437: [char; 256] = [
@@ -51,14 +52,17 @@ pub(crate) const CP437: [char; 256] = [
     '\u{b0}', '\u{2219}', '\u{b7}', '\u{221a}', '\u{207f}', '\u{b2}', '\u{25a0}', '\u{a0}',
 ];
 
+/// Writes a complete character screen as UTF-8 with ANSI colors.
 pub fn write_screen<W: Write>(output: &mut W, screen: &Screen) -> io::Result<()> {
     write_screen_inner(output, screen, None, screen.width)
 }
 
+/// Plays an animation at [`DEFAULT_ANIMATION_BAUD`].
 pub fn write_animation<W: Write>(output: &mut W, animation: &Animation) -> io::Result<()> {
     write_animation_at_baud(output, animation, DEFAULT_ANIMATION_BAUD)
 }
 
+/// Plays an animation at the requested source-byte rate.
 pub fn write_animation_at_baud<W: Write>(
     output: &mut W,
     animation: &Animation,
@@ -444,6 +448,7 @@ fn sleep_until(started: Instant, target: Duration) {
     }
 }
 
+/// Writes UTF-8 text cropped to a maximum character-column count.
 pub fn write_screen_cropped<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -452,6 +457,7 @@ pub fn write_screen_cropped<W: Write>(
     write_screen_inner(output, screen, None, columns)
 }
 
+/// Writes UTF-8 text one character row at a time with a delay.
 pub fn write_screen_slow<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -466,6 +472,7 @@ pub fn write_screen_slow<W: Write>(
     write_screen_inner(output, screen, Some(delay), screen.width)
 }
 
+/// Slowly writes UTF-8 text cropped to a maximum column count.
 pub fn write_screen_slow_cropped<W: Write>(
     output: &mut W,
     screen: &Screen,

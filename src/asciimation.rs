@@ -14,18 +14,35 @@ use std::{
 const FRAME_ROWS: usize = 13;
 const TICK: Duration = Duration::from_millis(100);
 
-#[derive(Debug)]
+/// A parsed asciimation.co.nz-style frame stream.
+#[derive(Clone, Debug)]
 pub struct Asciimation {
+    /// Frames in playback order.
     pub frames: Vec<AsciimationFrame>,
+    /// Widest frame row, in terminal columns.
     pub width: usize,
 }
 
-#[derive(Debug)]
+/// One frame from an [`Asciimation`] stream.
+#[derive(Clone, Debug)]
 pub struct AsciimationFrame {
     duration: Duration,
     rows: Vec<String>,
 }
 
+impl AsciimationFrame {
+    /// Returns how long the frame should remain visible.
+    pub fn duration(&self) -> Duration {
+        self.duration
+    }
+
+    /// Returns the frame's thirteen display rows.
+    pub fn rows(&self) -> &[String] {
+        &self.rows
+    }
+}
+
+/// Parses an explicit asciimation.co.nz-style text stream.
 pub fn parse(data: &[u8]) -> Result<Asciimation, String> {
     let input =
         std::str::from_utf8(data).map_err(|_| "asciimation input must be UTF-8 or ASCII text")?;
@@ -83,6 +100,7 @@ pub fn parse(data: &[u8]) -> Result<Asciimation, String> {
     Ok(Asciimation { frames, width })
 }
 
+/// Plays an asciimation stream to terminal output using its native timing.
 pub fn write<W: Write>(output: &mut W, animation: &Asciimation) -> io::Result<()> {
     let started = Instant::now();
     let mut elapsed = Duration::ZERO;

@@ -9,6 +9,7 @@
 
 use crate::{Screen, font};
 
+/// The default 16-color VGA palette as RGB triples.
 pub const VGA_PALETTE: [[u8; 3]; 16] = [
     [0x00, 0x00, 0x00],
     [0xaa, 0x00, 0x00],
@@ -30,10 +31,12 @@ pub const VGA_PALETTE: [[u8; 3]; 16] = [
 
 const MAX_PNG_PIXELS: usize = 100_000_000;
 
+/// Encodes a contiguous range of character rows as an indexed-color PNG.
 pub fn encode_screen(screen: &Screen, first_row: usize, rows: usize) -> Result<Vec<u8>, String> {
     encode_screen_scaled(screen, first_row, rows, 1)
 }
 
+/// Encodes character rows as an indexed-color PNG at an integer scale.
 pub fn encode_screen_scaled(
     screen: &Screen,
     first_row: usize,

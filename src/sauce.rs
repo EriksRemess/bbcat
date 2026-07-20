@@ -4,23 +4,36 @@
 //! container. The record identifies itself with `SAUCE00`, reports where the art
 //! bytes end, and may provide dimensions, iCE-color mode, and a font name.
 
+/// Metadata decoded from a SAUCE trailer or equivalent format metadata.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Sauce {
+    /// Artwork title.
     pub title: String,
+    /// Artist or author name.
     pub author: String,
+    /// Art group name.
     pub group: String,
+    /// Source date, conventionally formatted as `YYYYMMDD`.
     pub date: String,
+    /// Declared character width, or zero when unspecified.
     pub width: usize,
+    /// Declared character height, or zero when unspecified.
     pub height: usize,
+    /// Whether the blink bit selects bright background colors.
     pub ice_colors: bool,
+    /// Explicit eight- or nine-pixel VGA character spacing.
     pub letter_spacing: Option<LetterSpacing>,
+    /// Named bitmap font requested by the metadata.
     pub font_name: String,
     content_len: usize,
 }
 
+/// Horizontal VGA character-cell spacing declared by SAUCE.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LetterSpacing {
+    /// Use an eight-pixel-wide character cell.
     EightPixels,
+    /// Use a nine-pixel-wide VGA character cell.
     NinePixels,
 }
 
@@ -65,6 +78,7 @@ impl Sauce {
         })
     }
 
+    /// Parses a SAUCE record located exactly 128 bytes from the end of `data`.
     pub fn parse(data: &[u8]) -> Option<Self> {
         // The signature is meaningful only exactly 128 bytes from EOF.
         let start = data.len().checked_sub(128)?;
@@ -99,6 +113,7 @@ impl Sauce {
         })
     }
 
+    /// Returns the artwork bytes preceding this SAUCE record.
     pub fn content<'a>(&self, data: &'a [u8]) -> &'a [u8] {
         &data[..self.content_len.min(data.len())]
     }

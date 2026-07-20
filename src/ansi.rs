@@ -5,6 +5,7 @@
 //! erase cells, or change the active colors. A DIZ/plain-text file follows the
 //! same path but normally contains no escape sequences.
 
+/// One character and color pair in a decoded text-art screen.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Cell {
     /// CP437 byte value, or 0..=511 for an XBin font with 512 glyphs.
@@ -25,11 +26,14 @@ impl Default for Cell {
     }
 }
 
+/// A decoded character grid or indexed raster shared by all input formats.
 #[derive(Clone, Debug)]
 pub struct Screen {
     /// Character-grid dimensions used by text formats and terminal placement.
     pub width: usize,
+    /// Number of character rows in the screen.
     pub height: usize,
+    /// Row-major character cells. Raster formats leave this empty.
     pub cells: Vec<Cell>,
     // Graphical writers use these format-specific additions when the default
     // 8x16 VGA font and palette are not sufficient.
@@ -41,10 +45,66 @@ pub struct Screen {
     pub(crate) raster: Option<Raster>,
 }
 
+impl Screen {
+    /// Returns the cell at zero-based `column` and `row` coordinates.
+    pub fn cell(&self, column: usize, row: usize) -> Option<&Cell> {
+        let index = row.checked_mul(self.width)?.checked_add(column)?;
+        (column < self.width && row < self.height)
+            .then(|| self.cells.get(index))
+            .flatten()
+    }
+
+    /// Returns the width and height of one character glyph in pixels.
+    pub fn glyph_dimensions(&self) -> (usize, usize) {
+        (self.glyph_width, self.glyph_height)
+    }
+
+    /// Returns the complete rendered width and height in pixels.
+    pub fn pixel_dimensions(&self) -> Option<(usize, usize)> {
+        if let Some(raster) = &self.raster {
+            Some((raster.width, raster.height))
+        } else {
+            Some((
+                self.width.checked_mul(self.glyph_width)?,
+                self.height.checked_mul(self.glyph_height)?,
+            ))
+        }
+    }
+
+    /// Returns the 16-color RGB palette used by graphical output.
+    pub fn palette(&self) -> [[u8; 3]; 16] {
+        self.palette.unwrap_or(crate::VGA_PALETTE)
+    }
+
+    /// Returns glyph-major bitmap font data for character artwork.
+    ///
+    /// Each glyph contains [`Screen::glyph_dimensions`]'s height in bytes. The
+    /// most-significant bit is the leftmost pixel. RIPscrip raster screens do
+    /// not use a character font and return `None`.
+    pub fn font(&self) -> Option<&[u8]> {
+        if self.raster.is_some() {
+            None
+        } else if let Some(font) = &self.font {
+            Some(font)
+        } else {
+            Some(crate::font::glyphs())
+        }
+    }
+
+    /// Returns the indexed pixel raster for RIPscrip artwork.
+    pub fn raster(&self) -> Option<&Raster> {
+        self.raster.as_ref()
+    }
+}
+
+/// An indexed-color pixel canvas produced by a raster format such as RIPscrip.
 #[derive(Clone, Debug)]
-pub(crate) struct Raster {
+pub struct Raster {
+    /// Pixel width of the canvas.
     pub width: usize,
+    /// Pixel height of the canvas.
     pub height: usize,
+    /// Row-major palette indexes, one byte per pixel.
     pub pixels: Vec<u8>,
 }
 

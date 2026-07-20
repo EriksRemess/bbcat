@@ -1,11 +1,41 @@
-//! Format detection and the common rendering model.
+//! Decode and render ANSI and BBS artwork.
 //!
 //! Every supported input is decoded into a [`Screen`]. Character formats fill
 //! its grid of [`Cell`] values; RIPscrip fills its indexed-color raster instead.
 //! The text, PNG, and Kitty writers therefore do not need to understand the
 //! original file format.
+//!
+//! Use [`decode`] when the input format can be detected from its contents. Pass
+//! [`DecodeOptions::file_name`] when a file extension should disambiguate ADF,
+//! DDW, or RIPscrip input, and [`DecodeOptions::width`] to override the inferred
+//! text width.
+//!
+//! ```
+//! use bbcat::{DecodeOptions, Format};
+//! use std::path::Path;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let data = b"\x1b[31mANSI art";
+//! let document = bbcat::decode_with_options(
+//!     data,
+//!     DecodeOptions {
+//!         file_name: Some(Path::new("demo.ans")),
+//!         width: Some(80),
+//!     },
+//! )?;
+//!
+//! assert_eq!(document.format, Format::AnsiText);
+//! assert_eq!(document.screen.width, 80);
+//!
+//! let png = document.encode_png(1)?;
+//! assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+//! # Ok(())
+//! # }
+//! ```
 
-use std::{path::Path, time::Duration};
+#![warn(missing_docs)]
+
+use std::{fmt, path::Path, time::Duration};
 
 mod adf;
 mod animation_image;
@@ -22,15 +52,17 @@ mod text;
 mod xbin;
 
 pub use animation_image::{encode_animation_apng, encode_animation_gif};
-pub use ansi::{Cell, Screen};
-pub use asciimation::{Asciimation, parse as parse_asciimation, write as write_asciimation};
+pub use ansi::{Cell, Raster, Screen};
+pub use asciimation::{
+    Asciimation, AsciimationFrame, parse as parse_asciimation, write as write_asciimation,
+};
 pub use kitty::{
     write_screen, write_screen_cropped, write_screen_fit, write_screen_scaled,
     write_screen_scaled_cropped, write_screen_scaled_fit, write_screen_slow,
     write_screen_slow_cropped, write_screen_slow_fit, write_screen_slow_scaled,
     write_screen_slow_scaled_cropped, write_screen_slow_scaled_fit,
 };
-pub use png::{encode_screen, encode_screen_scaled};
+pub use png::{VGA_PALETTE, encode_screen, encode_screen_scaled};
 pub use sauce::{LetterSpacing, Sauce};
 pub use text::{
     DEFAULT_ANIMATION_BAUD, write_animation, write_animation_at_baud, write_screen as write_text,
@@ -41,22 +73,146 @@ pub use text::{
 const MAX_ANSI_WIDTH: usize = 10_000;
 const MAX_INFERRED_WIDTH: usize = 1_000;
 
-#[derive(Debug)]
+/// The result type used by bbcat's high-level library API.
+pub type Result<T> = std::result::Result<T, Error>;
+
+/// An error produced while decoding or encoding artwork.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Error {
+    message: String,
+}
+
+impl Error {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+
+    /// Returns the human-readable error message.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// Consumes the error and returns its message.
+    pub fn into_message(self) -> String {
+        self.message
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Error {}
+
+impl From<String> for Error {
+    fn from(message: String) -> Self {
+        Self::new(message)
+    }
+}
+
+/// Options that influence format selection and text dimensions during decoding.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DecodeOptions<'a> {
+    /// File name used as a format hint for `.adf`, `.ddw`, and `.rip` inputs.
+    ///
+    /// Content signatures still take precedence where a format has one.
+    pub file_name: Option<&'a Path>,
+    /// Character width for ANSI and plain text, or a validation constraint for
+    /// formats with declared dimensions.
+    pub width: Option<usize>,
+}
+
+/// The source format represented by a decoded [`Document`].
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
+pub enum Format {
+    /// ANSI art or plain CP437 text decoded through the ANSI terminal model.
+    AnsiText,
+    /// DarkDraw UTF-8 JSON Lines artwork (`.ddw`).
+    DarkDraw,
+    /// ArtWorx Data Format (`.adf`).
+    ArtWorx,
+    /// RIPscrip level-one vector graphics (`.rip`).
+    Ripscrip,
+    /// XBin artwork (`.xb`).
+    XBin,
+}
+
+impl fmt::Display for Format {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::AnsiText => "ANSI or CP437 text",
+            Self::DarkDraw => "DarkDraw DDW",
+            Self::ArtWorx => "ArtWorx ADF",
+            Self::Ripscrip => "RIPscrip",
+            Self::XBin => "XBin",
+        })
+    }
+}
+
+/// Decoded artwork and its optional metadata and animation frames.
+#[derive(Clone, Debug)]
 pub struct Document {
+    /// The detected source format.
+    pub format: Format,
+    /// The final visible screen state.
     pub screen: Screen,
+    /// Parsed SAUCE metadata, when the source provides it.
     pub sauce: Option<Sauce>,
     /// Complete screen states when the source contains an animation.
     pub animation: Option<Animation>,
 }
 
-#[derive(Debug)]
+impl Document {
+    /// Encodes the complete final screen as an indexed-color PNG.
+    ///
+    /// `scale` must be at least one. A value of two doubles both dimensions.
+    pub fn encode_png(&self, scale: usize) -> Result<Vec<u8>> {
+        encode_screen_scaled(&self.screen, 0, self.screen.height, scale).map_err(Error::from)
+    }
+
+    /// Encodes all animation frames as a looping APNG.
+    ///
+    /// `baud` controls ANSI source-byte timing and scales native DDW timing;
+    /// [`DEFAULT_ANIMATION_BAUD`] preserves the default playback speed.
+    pub fn encode_apng(&self, baud: u64, scale: usize) -> Result<Vec<u8>> {
+        let animation = self
+            .animation
+            .as_ref()
+            .ok_or_else(|| Error::new("APNG output requires an animated ANSI or DDW document"))?;
+        encode_animation_apng(animation, baud, scale).map_err(Error::from)
+    }
+
+    /// Encodes all animation frames as a looping 16-color GIF.
+    ///
+    /// `baud` controls ANSI source-byte timing and scales native DDW timing;
+    /// [`DEFAULT_ANIMATION_BAUD`] preserves the default playback speed.
+    pub fn encode_gif(&self, baud: u64, scale: usize) -> Result<Vec<u8>> {
+        let animation = self
+            .animation
+            .as_ref()
+            .ok_or_else(|| Error::new("GIF output requires an animated ANSI or DDW document"))?;
+        encode_animation_gif(animation, baud, scale).map_err(Error::from)
+    }
+}
+
+/// A decoded animation and its terminal cleanup behavior.
+#[derive(Clone, Debug)]
 pub struct Animation {
+    /// Complete visible screen states in playback order.
     pub frames: Vec<AnimationFrame>,
+    /// Whether terminal playback should clear the animation after its last frame.
     pub clear_on_finish: bool,
 }
 
-#[derive(Debug)]
+/// One decoded animation frame.
+#[derive(Clone, Debug)]
 pub struct AnimationFrame {
+    /// The complete visible screen state for this frame.
     pub screen: Screen,
     /// Encoded terminal bytes whose effects produce this frame.
     pub source_bytes: usize,
@@ -68,28 +224,59 @@ pub struct AnimationFrame {
     pub data: Vec<u8>,
 }
 
-pub fn render(data: &[u8], width_override: Option<usize>) -> Result<Document, String> {
+/// Decodes artwork using content-based format detection and inferred dimensions.
+pub fn decode(data: &[u8]) -> Result<Document> {
+    decode_with_options(data, DecodeOptions::default())
+}
+
+/// Decodes artwork with optional filename and width hints.
+pub fn decode_with_options(data: &[u8], options: DecodeOptions<'_>) -> Result<Document> {
+    let (adf_hint, rip_hint, ddw_hint) = options.file_name.map_or((false, false, false), |name| {
+        (
+            has_extension(name, "adf"),
+            has_extension(name, "rip"),
+            has_extension(name, "ddw"),
+        )
+    });
+    render_inner(data, options.width, adf_hint, rip_hint, ddw_hint).map_err(Error::from)
+}
+
+/// Decodes an explicit asciimation.co.nz-style text stream.
+///
+/// ASCIImation has no magic signature and is therefore intentionally separate
+/// from [`decode`].
+pub fn decode_asciimation(data: &[u8]) -> Result<Asciimation> {
+    parse_asciimation(data).map_err(Error::from)
+}
+
+/// Decodes artwork with an optional width override.
+///
+/// This compatibility helper returns a string error. New library code should
+/// prefer [`decode`] or [`decode_with_options`].
+pub fn render(data: &[u8], width_override: Option<usize>) -> std::result::Result<Document, String> {
     render_inner(data, width_override, false, false, false)
 }
 
+/// Decodes artwork with filename and optional width hints.
+///
+/// This compatibility helper returns a string error. New library code should
+/// prefer [`decode_with_options`].
 pub fn render_named(
     data: &[u8],
     width_override: Option<usize>,
     name: &str,
-) -> Result<Document, String> {
-    let adf_hint = Path::new(name)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("adf"));
-    let rip_hint = Path::new(name)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("rip"));
-    let ddw_hint = Path::new(name)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("ddw"));
+) -> std::result::Result<Document, String> {
+    let name = Path::new(name);
+    let adf_hint = has_extension(name, "adf");
+    let rip_hint = has_extension(name, "rip");
+    let ddw_hint = has_extension(name, "ddw");
     render_inner(data, width_override, adf_hint, rip_hint, ddw_hint)
+}
+
+fn has_extension(path: &Path, expected: &str) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(expected))
 }
 
 fn render_inner(
@@ -98,7 +285,7 @@ fn render_inner(
     adf_hint: bool,
     rip_hint: bool,
     ddw_hint: bool,
-) -> Result<Document, String> {
+) -> std::result::Result<Document, String> {
     if ddw_hint || ddw::is_ddw(data) {
         let parsed = ddw::parse(data, width_override)?;
         let animation = (!parsed.frames.is_empty()).then(|| Animation {
@@ -116,6 +303,7 @@ fn render_inner(
             clear_on_finish: false,
         });
         return Ok(Document {
+            format: Format::DarkDraw,
             screen: parsed.screen,
             sauce: parsed.sauce,
             animation,
@@ -140,6 +328,7 @@ fn render_inner(
     if rip_hint || rip::is_rip(binary_content) {
         let screen = rip::parse(binary_content, width_override)?;
         return Ok(Document {
+            format: Format::Ripscrip,
             screen,
             sauce,
             animation: None,
@@ -148,6 +337,7 @@ fn render_inner(
     if !is_xbin && (adf_hint || adf::is_adf(binary_content)) {
         let screen = adf::parse(binary_content, width_override)?;
         return Ok(Document {
+            format: Format::ArtWorx,
             screen,
             sauce,
             animation: None,
@@ -163,6 +353,7 @@ fn render_inner(
     if is_xbin {
         let screen = xbin::parse(content, width_override)?;
         return Ok(Document {
+            format: Format::XBin,
             screen,
             sauce,
             animation: None,
@@ -231,6 +422,7 @@ fn render_inner(
         clear_on_finish: parsed.clear_on_finish,
     });
     Ok(Document {
+        format: Format::AnsiText,
         screen: parsed.screen,
         sauce,
         animation,
@@ -401,6 +593,7 @@ mod tests {
             r#"{"x":0,"y":0,"text":"X","color":"15","frame":"1"}"#,
         );
         let document = render_named(data.as_bytes(), None, "scene.DDW").unwrap();
+        assert_eq!(document.format, Format::DarkDraw);
         let frame = &document.animation.unwrap().frames[0];
 
         assert_eq!(frame.duration, Some(Duration::from_millis(25)));
@@ -426,6 +619,7 @@ mod tests {
         data.extend(record);
 
         let document = render(&data, None).unwrap();
+        assert_eq!(document.format, Format::ArtWorx);
         assert_eq!((document.screen.width, document.screen.height), (80, 1));
         assert!(document.sauce.is_some());
     }

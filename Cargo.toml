@@ -2,7 +2,7 @@
 name = "bbcat"
 version = "0.4.0"
 edition = "2024"
-description = "View ANSI, DarkDraw DDW, DIZ, ADF, RIPscrip, and XBin art in terminals or export PNG, APNG, and GIF images"
+description = "Decode ANSI and BBS art in Rust, view it in terminals, or export PNG, APNG, and GIF images"
 license = "MIT AND BSD-2-Clause AND Zlib AND LicenseRef-Empathy-font"
 readme = "README.md"
 documentation = "https://docs.rs/bbcat"
@@ -11,6 +11,7 @@ keywords = ["ansi-art", "bbs", "kitty", "ripscrip", "terminal"]
 categories = ["command-line-utilities", "multimedia::images"]
 include = [
     "/src/**",
+    "/tests/**",
     "/Cargo.toml",
     "/README.md",
     "/LICENSE",

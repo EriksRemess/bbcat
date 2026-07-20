@@ -1,8 +1,8 @@
 # bbcat
 
-Dependency-free terminal viewer for CP437 ANSI and ansimation, DarkDraw DDW,
-DIZ, ADF, RIPscrip, and XBin art. It writes colored UTF-8 by default, with
-optional Kitty graphics plus PNG, APNG, and GIF output.
+Dependency-free Rust library and terminal viewer for CP437 ANSI and ansimation,
+DarkDraw DDW, DIZ, ADF, RIPscrip, and XBin art. It writes colored UTF-8 by
+default, with optional Kitty graphics plus PNG, APNG, and GIF output.
 
 Browse and download BBS art packs at [16colo.rs](https://16colo.rs/).
 
@@ -36,6 +36,49 @@ bbcat --sauce art.ans
 bbcat --baud 4x animation.ans
 bbcat --asciimation ~/Downloads/starwars.txt
 ```
+
+## Library use
+
+Add bbcat to another Rust application to detect and decode supported BBS art
+formats into a common `Document` and `Screen` model:
+
+```console
+cargo add bbcat
+```
+
+```rust
+use bbcat::{DecodeOptions, Format};
+use std::path::Path;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let data = std::fs::read("art/demo.ans")?;
+    let document = bbcat::decode_with_options(
+        &data,
+        DecodeOptions {
+            file_name: Some(Path::new("art/demo.ans")),
+            width: None,
+        },
+    )?;
+
+    println!(
+        "{}: {}x{} cells",
+        document.format, document.screen.width, document.screen.height
+    );
+    assert_eq!(document.format, Format::AnsiText);
+
+    std::fs::write("preview.png", document.encode_png(1)?)?;
+    Ok(())
+}
+```
+
+Use `decode` for content-based detection with inferred dimensions, or
+`decode_with_options` to supply a filename hint and width override. A decoded
+`Document` reports its `Format`, final `Screen`, optional `Sauce`, and optional
+`Animation`. Character screens expose cells, glyph and pixel dimensions,
+palette and font data; RIPscrip screens expose their indexed raster. Documents
+can be encoded directly to PNG, APNG, or GIF, while the lower-level text and
+Kitty writers remain available for streaming output. ASCIImation has no format
+signature; decode it explicitly with `decode_asciimation`.
 
 ## Output modes
 

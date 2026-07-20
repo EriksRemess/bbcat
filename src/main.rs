@@ -120,7 +120,7 @@ fn run() -> Result<ExitCode, String> {
         let file = &options.files[0];
         let data = read(file)?;
         let animation =
-            bbcat::parse_asciimation(&data).map_err(|error| format!("{file}: {error}"))?;
+            bbcat::decode_asciimation(&data).map_err(|error| format!("{file}: {error}"))?;
         if let Some(columns) = terminal_columns
             && animation.width > columns
         {
@@ -145,7 +145,13 @@ fn run() -> Result<ExitCode, String> {
         };
         // All input formats become the same Screen here. The remaining branches
         // differ only in how that screen is serialized for the requested target.
-        let document = match bbcat::render_named(&data, options.width, file) {
+        let document = match bbcat::decode_with_options(
+            &data,
+            bbcat::DecodeOptions {
+                file_name: Some(Path::new(file)),
+                width: options.width,
+            },
+        ) {
             Ok(document) => document,
             Err(error) => {
                 eprintln!("bbcat: {file}: {error}");

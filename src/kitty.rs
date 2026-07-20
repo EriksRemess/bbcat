@@ -25,6 +25,7 @@ enum WidthMode {
     Fit(usize),
 }
 
+/// Writes a screen through the Kitty graphics protocol in vertical chunks.
 pub fn write_screen<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -33,6 +34,7 @@ pub fn write_screen<W: Write>(
     write_screen_inner(output, screen, chunk_lines, None, 1, WidthMode::Full)
 }
 
+/// Writes Kitty graphics cropped to a terminal column count.
 pub fn write_screen_cropped<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -49,6 +51,7 @@ pub fn write_screen_cropped<W: Write>(
     )
 }
 
+/// Fits the complete screen within a terminal column count and writes it.
 pub fn write_screen_fit<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -65,6 +68,7 @@ pub fn write_screen_fit<W: Write>(
     )
 }
 
+/// Writes Kitty graphics at an integer pixel scale.
 pub fn write_screen_scaled<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -74,6 +78,7 @@ pub fn write_screen_scaled<W: Write>(
     write_screen_inner(output, screen, chunk_lines, None, scale, WidthMode::Full)
 }
 
+/// Writes scaled Kitty graphics cropped to a terminal column count.
 pub fn write_screen_scaled_cropped<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -91,6 +96,7 @@ pub fn write_screen_scaled_cropped<W: Write>(
     )
 }
 
+/// Fits and writes the complete screen after applying an integer scale.
 pub fn write_screen_scaled_fit<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -108,6 +114,7 @@ pub fn write_screen_scaled_fit<W: Write>(
     )
 }
 
+/// Writes one Kitty image per character row with a delay between rows.
 pub fn write_screen_slow<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -116,6 +123,7 @@ pub fn write_screen_slow<W: Write>(
     write_screen_inner(output, screen, 1, Some(delay), 1, WidthMode::Full)
 }
 
+/// Slowly writes Kitty graphics cropped to a terminal column count.
 pub fn write_screen_slow_cropped<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -125,6 +133,7 @@ pub fn write_screen_slow_cropped<W: Write>(
     write_screen_inner(output, screen, 1, Some(delay), 1, WidthMode::Crop(columns))
 }
 
+/// Slowly writes Kitty graphics fitted to a terminal column count.
 pub fn write_screen_slow_fit<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -134,6 +143,7 @@ pub fn write_screen_slow_fit<W: Write>(
     write_screen_inner(output, screen, 1, Some(delay), 1, WidthMode::Fit(columns))
 }
 
+/// Slowly writes Kitty graphics at an integer pixel scale.
 pub fn write_screen_slow_scaled<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -143,6 +153,7 @@ pub fn write_screen_slow_scaled<W: Write>(
     write_screen_inner(output, screen, 1, Some(delay), scale, WidthMode::Full)
 }
 
+/// Slowly writes scaled Kitty graphics cropped to terminal columns.
 pub fn write_screen_slow_scaled_cropped<W: Write>(
     output: &mut W,
     screen: &Screen,
@@ -160,6 +171,7 @@ pub fn write_screen_slow_scaled_cropped<W: Write>(
     )
 }
 
+/// Slowly writes scaled Kitty graphics fitted to terminal columns.
 pub fn write_screen_slow_scaled_fit<W: Write>(
     output: &mut W,
     screen: &Screen,

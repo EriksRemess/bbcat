@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Documentation for bbcat, a terminal viewer and image converter for ANSI and BBS art.">
+  <meta name="description" content="Documentation for the bbcat Rust library, terminal viewer, and image converter for ANSI and BBS art.">
   <link rel="canonical" href="https://bbcat.dev/docs/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>Documentation — bbcat</title>
@@ -272,6 +272,7 @@
             <option value="">Choose…</option>
             <option value="install">Install</option>
             <option value="usage">Usage</option>
+            <option value="library">Library API</option>
             <option value="output-modes">Output modes</option>
             <option value="animation">Animation</option>
             <option value="display">Display and scaling</option>
@@ -284,6 +285,7 @@
         <nav aria-label="Documentation sections">
           <a href="#install">Install</a>
           <a href="#usage">Usage</a>
+          <a href="#library">Library API</a>
           <a href="#output-modes">Output modes</a>
           <a href="#animation">Animation</a>
           <a href="#display">Display and scaling</a>
@@ -296,7 +298,7 @@
       <main>
         <p class="eyebrow">User guide</p>
         <h1>Documentation</h1>
-        <p class="lede">Install bbcat, view classic BBS artwork in your terminal, and export supported formats to PNG, APNG, or GIF.</p>
+        <p class="lede">Decode classic BBS artwork from Rust, view it in your terminal, and export supported formats to PNG, APNG, or GIF.</p>
 
         <section id="install">
           <h2>Install</h2>
@@ -323,6 +325,36 @@
 <span class="prompt">$</span> bbcat --baud 4x animation.ans
 <span class="prompt">$</span> bbcat --asciimation starwars.txt</code></pre>
           <p>Looking for files to try? Browse and download BBS art packs at <a href="https://16colo.rs/">16colo.rs</a>.</p>
+        </section>
+
+        <section id="library">
+          <h2>Library API</h2>
+          <p>Add bbcat to another Rust application to detect and decode supported BBS art formats into a common <code>Document</code> and <code>Screen</code> model:</p>
+          <pre><code><span class="prompt">$</span> cargo add bbcat</code></pre>
+          <pre><code>use bbcat::{DecodeOptions, Format};
+use std::path::Path;
+
+fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    let data = std::fs::read("art/demo.ans")?;
+    let document = bbcat::decode_with_options(
+        &amp;data,
+        DecodeOptions {
+            file_name: Some(Path::new("art/demo.ans")),
+            width: None,
+        },
+    )?;
+
+    println!(
+        "{}: {}x{} cells",
+        document.format, document.screen.width, document.screen.height
+    );
+    assert_eq!(document.format, Format::AnsiText);
+
+    std::fs::write("preview.png", document.encode_png(1)?)?;
+    Ok(())
+}</code></pre>
+          <p>Use <code>decode</code> for content-based detection with inferred dimensions, or <code>decode_with_options</code> to supply a filename hint and width override. A decoded <code>Document</code> reports its <code>Format</code>, final <code>Screen</code>, optional <code>Sauce</code>, and optional <code>Animation</code>.</p>
+          <p>Character screens expose cells, glyph and pixel dimensions, palette and font data; RIPscrip screens expose their indexed raster. Documents can be encoded directly to PNG, APNG, or GIF, while lower-level text and Kitty writers remain available for streaming output. ASCIImation has no format signature; decode it explicitly with <code>decode_asciimation</code>.</p>
         </section>
 
         <section id="output-modes">
