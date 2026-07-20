@@ -135,19 +135,19 @@ jobs:
 
           These packages track \`main\` and may be unstable."
 
-          if gh release view tip >/dev/null 2>&1; then
+          if gh release view tip --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh api \
               --method PATCH \
               "repos/${GITHUB_REPOSITORY}/git/refs/tags/tip" \
               -f sha="$GITHUB_SHA" \
               -F force=true
-            gh release edit tip \
+            gh release edit tip --repo "$GITHUB_REPOSITORY" \
               --title "tip" \
               --notes "$notes" \
               --prerelease \
               --latest
           else
-            gh release create tip \
+            gh release create tip --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "tip" \
               --notes "$notes" \
@@ -164,4 +164,6 @@ jobs:
                 "repos/${GITHUB_REPOSITORY}/releases/assets/${asset_id}"
             done
 
-          gh release upload tip dist/*.deb --clobber
+          gh release upload tip dist/*.deb \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
