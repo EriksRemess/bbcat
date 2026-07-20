@@ -291,6 +291,7 @@
             <option value="install">Install</option>
             <option value="usage">Usage</option>
             <option value="library">Library API</option>
+            <option value="example-applications">Example applications</option>
             <option value="output-modes">Output modes</option>
             <option value="animation">Animation</option>
             <option value="display">Display and scaling</option>
@@ -304,6 +305,7 @@
           <a href="#install">Install</a>
           <a href="#usage">Usage</a>
           <a href="#library">Library API</a>
+          <a href="#example-applications">Example applications</a>
           <a href="#output-modes">Output modes</a>
           <a href="#animation">Animation</a>
           <a href="#display">Display and scaling</a>
@@ -375,7 +377,14 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
           <p>Use <code>decode</code> for content-based detection with inferred dimensions, or <code>decode_with_options</code> to supply a filename hint and width override. A decoded <code>Document</code> reports its <code>Format</code>, final <code>Screen</code>, optional <code>Sauce</code>, and optional <code>Animation</code>.</p>
           <p>Character screens expose cells, glyph and pixel dimensions, palette and font data; RIPscrip screens expose their indexed raster. Documents can be encoded directly to PNG, APNG, or GIF, while lower-level text and Kitty writers remain available for streaming output. ASCIImation has no format signature; decode it explicitly with <code>decode_asciimation</code>.</p>
           <p><a href="https://docs.rs/bbcat/">Browse the complete library API documentation on docs.rs.</a></p>
-          <p>For a GUI application example, see <a href="https://github.com/EriksRemess/bbcat-gtk"><code>bbcat-gtk</code></a>, a small GTK4 demo that uses the library to open and render static and animated ANSI/BBS artwork. It also demonstrates file handling, responsive image display, and presenting SAUCE metadata in a desktop application.</p>
+        </section>
+
+        <section id="example-applications">
+          <h2>Example applications</h2>
+          <ul>
+            <li><a href="https://github.com/EriksRemess/bbcat-gtk"><code>bbcat-gtk</code></a> is a small GTK4 demo that uses the library to open and render static and animated ANSI/BBS artwork. It also demonstrates file handling, responsive image display, and presenting SAUCE metadata in a desktop application.</li>
+            <li><a href="https://github.com/EriksRemess/bbcat-thumbnailer"><code>bbcat-thumbnailer</code></a> is a Nautilus thumbnailer that demonstrates lower-level <code>Screen</code> pixel sampling, square cropping and downscaling, and PNG output.</li>
+          </ul>
         </section>
 
         <section id="output-modes">
