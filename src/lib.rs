@@ -361,7 +361,8 @@ fn render_inner(
     }
     // ANSI has no mandatory header. Prefer an explicit width, then SAUCE, then
     // the longest display line when the escape sequences do not move the
-    // cursor horizontally. Cursor-positioned artwork falls back to 80 columns.
+    // cursor horizontally. Cursor-positioned artwork and styled ANSI whose
+    // physical lines rely on terminal wrapping fall back to 80 columns.
     let declared_width = width_override.or_else(|| {
         sauce
             .as_ref()
@@ -463,6 +464,7 @@ fn strip_dos_eof(data: &[u8]) -> &[u8] {
 
 fn text_width(data: &[u8]) -> Option<usize> {
     let (mut column, mut widest) = (0_usize, 0_usize);
+    let mut styled = false;
     let mut index = 0;
     while index < data.len() {
         match data[index] {
@@ -476,7 +478,8 @@ fn text_width(data: &[u8]) -> Option<usize> {
                 let end = index + 2 + relative_end;
                 let parameters = &data[index + 2..end];
                 match data[end] {
-                    b'm' | b'J' => {}
+                    b'm' => styled = true,
+                    b'J' => {}
                     b'H' | b'f' if is_home_position(parameters) => {
                         widest = widest.max(column);
                         column = 0;
@@ -500,7 +503,11 @@ fn text_width(data: &[u8]) -> Option<usize> {
         widest = widest.max(column);
         index += 1;
     }
-    (widest > 0).then_some(widest)
+    // Some traditional ANSI files contain few or no line breaks because an
+    // 80-column DOS terminal supplied the wrapping. A very long styled line is
+    // therefore not a credible canvas width; returning None selects the same
+    // conventional 80-column fallback used for cursor-positioned ANSI.
+    (widest > 0 && !(styled && widest > MAX_INFERRED_WIDTH)).then_some(widest)
 }
 
 fn is_home_position(parameters: &[u8]) -> bool {
@@ -548,6 +555,17 @@ mod tests {
     fn cursor_positioned_ansi_falls_back_to_eighty_columns() {
         let doc = render(b"\x1b[10CX", None).unwrap();
         assert_eq!(doc.screen.width, 80);
+    }
+
+    #[test]
+    fn wrap_encoded_ansi_falls_back_to_eighty_columns() {
+        let mut data = b"\x1b[31m".to_vec();
+        data.extend(std::iter::repeat_n(b'X', 1_679));
+        data.extend_from_slice(b"\r\n");
+        data.extend(std::iter::repeat_n(b'X', 240));
+
+        let doc = render(&data, None).unwrap();
+        assert_eq!((doc.screen.width, doc.screen.height), (80, 24));
     }
 
     #[test]
