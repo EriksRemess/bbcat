@@ -227,6 +227,8 @@
 
     footer {
       display: flex;
+      flex-wrap: wrap;
+      align-items: center;
       justify-content: space-between;
       gap: 1rem;
       padding: 1.5rem 0 2rem;
@@ -252,7 +254,6 @@
       .shell { width: min(100% - 1.25rem, 1080px); }
       .docs-layout { gap: 1rem; }
       th, td { padding: 0.65rem; }
-      footer { flex-direction: column; }
     }
 
     @media (prefers-reduced-motion: reduce) {
