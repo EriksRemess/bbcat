@@ -93,10 +93,16 @@
 
     .hero {
       display: grid;
+      grid-template-areas:
+        "copy terminal"
+        "actions actions";
       grid-template-columns: 0.9fr 1.1fr;
-      gap: clamp(2.5rem, 7vw, 6rem);
+      column-gap: clamp(2.5rem, 7vw, 6rem);
+      row-gap: var(--space-xl);
       align-items: center;
     }
+
+    .hero-copy { grid-area: copy; }
 
     .version {
       display: flex;
@@ -162,21 +168,24 @@
     }
 
     .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-lg);
-      margin-top: var(--space-lg);
+      display: grid;
+      grid-area: actions;
+      grid-template-columns: repeat(4, max-content);
+      column-gap: clamp(var(--space-lg), 4vw, var(--space-section));
+      width: 100%;
     }
 
     .button {
       display: inline-flex;
       align-items: baseline;
+      justify-content: flex-start;
       padding: 0.2rem 0;
       border: 0;
       color: var(--text);
       font-size: 0.82rem;
       line-height: 1.4;
       text-decoration: none;
+      white-space: nowrap;
     }
 
     .button::before,
@@ -213,6 +222,7 @@
     }
 
     .terminal {
+      grid-area: terminal;
       position: relative;
       overflow: hidden;
       border: 1px solid #343846;
@@ -260,9 +270,8 @@
     }
 
     pre {
-      min-height: 330px;
       margin: 0;
-      padding: clamp(1rem, 3vw, 1.8rem);
+      padding: clamp(0.85rem, 2.4vw, 1.4rem);
       overflow: hidden;
       font: inherit;
       font-size: clamp(0.63rem, 1.35vw, 0.9rem);
@@ -280,13 +289,42 @@
     .cyan { color: var(--cyan); }
     .yellow { color: var(--yellow); }
     .pink { color: var(--pink); }
+    .green { color: var(--green); }
+    .red { color: #ff657a; }
+    .orange { color: #ff9f43; }
+    .blue { color: #6ea8fe; }
+    .purple { color: #b78aff; }
+    .white { color: #f4f4ef; }
+    .dark-red { color: #920018; }
+    .bright-red { color: #ff5364; }
+    .gray { color: #555b67; }
+    .teal { color: #00adb5; }
+    .aqua { color: #63ffff; }
     .dim { color: #697082; }
+
+    #ansi-logo.pixel-logo {
+      display: inline-block;
+      transform: scaleX(1.45);
+      transform-origin: left center;
+    }
+
+    #ansi-logo.classic-logo {
+      display: inline-block;
+      transform: scaleX(1.3);
+      transform-origin: left center;
+    }
+
+    #ansi-logo.textmode-logo {
+      display: inline-block;
+      transform: scaleX(1.4);
+      transform-origin: left center;
+    }
 
     .features {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 1px;
-      margin-top: var(--space-section);
+      margin-top: var(--space-xl);
       overflow: hidden;
       border: 1px solid var(--line);
       border-radius: 10px;
@@ -351,7 +389,7 @@
       align-items: center;
       justify-content: space-between;
       gap: var(--space-md);
-      margin-top: var(--space-section);
+      margin-top: var(--space-xl);
       padding: var(--space-lg) 0 var(--space-xl);
       border-top: 1px solid var(--line);
       color: var(--muted);
@@ -361,7 +399,14 @@
     footer a { color: var(--text); text-decoration: none; }
 
     @media (max-width: 800px) {
-      .hero { grid-template-columns: 1fr; }
+      .hero {
+        grid-template-areas:
+          "copy"
+          "actions"
+          "terminal";
+        grid-template-columns: 1fr;
+      }
+      .actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       h1 { max-width: 9ch; }
       .features { grid-template-columns: 1fr; }
       .feature { min-height: auto; }
@@ -371,7 +416,12 @@
     @media (max-width: 520px) {
       header { min-height: 62px; }
       nav .nav-optional { display: none; }
-      pre { min-height: 270px; }
+      pre {
+        padding-inline: var(--space-sm);
+        font-size: clamp(0.5rem, 2.5vw, 0.63rem);
+      }
+      #ansi-logo.classic-logo { transform: scaleX(1.1); }
+      #ansi-logo.textmode-logo { transform: scaleX(1.1); }
       .formats {
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -411,7 +461,7 @@
 
     <main>
       <section class="hero">
-        <div>
+        <div class="hero-copy">
           <h1>BBS art, right in your terminal.</h1>
           <p class="lede">Decode classic ANSI, ansimation, ASCIImation, DDW, DIZ, ADF, RIPscrip, and XBin artwork from Rust, preview ZIP art packs, or view it as colored UTF-8, Kitty graphics, PNG, APNG, and GIF.</p>
 
@@ -419,30 +469,31 @@
             <span aria-hidden="true">$</span><code>cargo install bbcat</code>
           </div>
 
-          <div class="actions">
-            <a class="button primary" href="/docs/"><span>read the docs</span></a>
-            <a class="button" href="https://github.com/EriksRemess/bbcat/releases"><span>download .deb</span></a>
-            <a class="button" href="https://github.com/EriksRemess/bbcat"><span>view source</span></a>
-            <a class="button" href="https://16colo.rs/"><span>find artwork</span></a>
-          </div>
         </div>
 
         <div class="terminal" aria-label="bbcat terminal preview">
           <div class="terminal-bar">
             <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-            <span class="terminal-title">bbs — 80×25</span>
+            <span class="terminal-title" id="terminal-title">bbs — 80×12</span>
           </div>
           <pre><span class="terminal-command"><span class="prompt">❯</span><span>bbcat DEMO.ANS --kitty</span></span>
 
-<span class="cyan">  ░▒▓██████╗ ██████╗  ██████╗ █████╗ ████████╗▓▒░</span>
+<span id="ansi-logo" role="img" aria-label="BBCAT ANSI logo"><span class="cyan">  ░▒▓██████╗ ██████╗  ██████╗ █████╗ ████████╗▓▒░</span>
 <span class="cyan">     ██╔══██╗██╔══██╗██╔════╝██╔══██╗╚══██╔══╝</span>
 <span class="pink">     ██████╔╝██████╔╝██║     ███████║   ██║</span>
 <span class="yellow">     ██╔══██╗██╔══██╗██║     ██╔══██║   ██║</span>
 <span class="green">     ██████╔╝██████╔╝╚██████╗██║  ██║   ██║</span>
-<span class="green">     ╚═════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝   ╚═╝</span>
+<span class="green">     ╚═════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝   ╚═╝</span></span>
 
 <span class="dim">  ANSI · XBIN · ADF · RIP · CP437</span>
 <span class="terminal-command"><span class="prompt">❯</span><span class="dim">_</span></span></pre>
+        </div>
+
+        <div class="actions">
+          <a class="button primary" href="/docs/"><span>read the docs</span></a>
+          <a class="button" href="https://github.com/EriksRemess/bbcat/releases"><span>download .deb</span></a>
+          <a class="button" href="https://github.com/EriksRemess/bbcat"><span>view source</span></a>
+          <a class="button" href="https://16colo.rs/"><span>find artwork</span></a>
         </div>
       </section>
 
@@ -482,5 +533,202 @@
       </span>
     </footer>
   </div>
+  <script>
+    const pixelGlyphs = {
+      B: ["11110", "10001", "10001", "11110", "10001", "10001", "11110"],
+      C: ["01111", "10000", "10000", "10000", "10000", "10000", "01111"],
+      A: ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
+      T: ["11111", "00100", "00100", "00100", "00100", "00100", "00100"]
+    };
+
+    function buildWildstyleLogo() {
+      const word = "BBCAT";
+      const offsets = [1, 0, 1, 0, 1];
+      const height = pixelGlyphs.B.length + Math.max(...offsets);
+      const mask = Array.from({ length: height }, (_, row) =>
+        [...word].map((letter, index) => pixelGlyphs[letter][row - offsets[index]] ?? "00000").join("00")
+      );
+      const width = mask[0].length;
+      const hasPixel = (x, y) => y >= 0 && y < mask.length && x >= 0 && x < width && mask[y][x] === "1";
+      const hasNeighbor = (x, y) => {
+        return hasPixel(x - 1, y) || hasPixel(x + 1, y)
+          || hasPixel(x, y - 1) || hasPixel(x, y + 1);
+      };
+      const lines = [];
+
+      for (let y = -1; y <= mask.length; y += 1) {
+        const cells = [];
+
+        for (let x = -1; x <= width + 2; x += 1) {
+          let color = "";
+          let text = " ";
+
+          if (hasPixel(x, y)) {
+            const isTopEdge = !hasPixel(x, y - 1);
+            const isBottomEdge = !hasPixel(x, y + 1);
+            color = isTopEdge ? "bright-red" : isBottomEdge ? "dark-red" : "red";
+            if (isTopEdge && (x + y * 3) % 11 === 0) color = "white";
+            text = "█";
+          } else if (hasNeighbor(x, y)) {
+            color = "gray";
+            text = "▒";
+          } else if (hasPixel(x - 2, y - 1)) {
+            color = "dark-red";
+            text = "▒";
+          } else if ((x * 7 + y * 13 + 97) % 41 === 0) {
+            color = "dim";
+            text = "░";
+          }
+
+          const previous = cells.at(-1);
+          if (previous && previous[0] === color) previous[1] += text;
+          else cells.push([color, text]);
+        }
+
+        lines.push(cells);
+      }
+
+      lines.push([
+        ["gray", " ╲▄"], ["teal", "▄▄▄▄▄▄▄▄▄▄▄▄▄▄"], ["aqua", "▄▄▄▄"],
+        ["teal", "▄▄▄▄▄▄▄▄▄▄▄▄▄"], ["gray", "▄╱"]
+      ]);
+      lines.push([
+        ["dim", "  ╲"], ["teal", "▀▀▀▀▀▀▀▀▀▀▀▀▀"], ["aqua", "▀▀"],
+        ["teal", "▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀"], ["dim", "╱ ░"]
+      ]);
+
+      return lines;
+    }
+
+    function buildCharacterLogo(style) {
+      const word = "BBCAT";
+      const height = pixelGlyphs.B.length + Math.max(...style.offsets);
+      const gap = "0".repeat(style.gap);
+      const mask = Array.from({ length: height }, (_, row) =>
+        [...word].map((letter, index) => pixelGlyphs[letter][row - style.offsets[index]] ?? "00000").join(gap)
+      );
+      const width = mask[0].length;
+      const hasPixel = (x, y) => y >= 0 && y < mask.length && x >= 0 && x < width && mask[y][x] === "1";
+      const hasNeighbor = (x, y) => hasPixel(x - 1, y) || hasPixel(x + 1, y)
+        || hasPixel(x, y - 1) || hasPixel(x, y + 1);
+      const lines = [];
+
+      for (let y = -1; y <= mask.length; y += 1) {
+        const cells = [];
+
+        for (let x = -1; x <= width + 2; x += 1) {
+          let color = "";
+          let text = " ";
+
+          if (hasPixel(x, y)) {
+            const isTopEdge = !hasPixel(x, y - 1);
+            const isBottomEdge = !hasPixel(x, y + 1);
+            color = isTopEdge ? style.highlightColor : isBottomEdge ? style.lowColor : style.faceColor;
+            text = isTopEdge
+              ? style.top
+              : isBottomEdge
+                ? style.bottom
+                : style.fill[(x * 3 + y * 5) % style.fill.length];
+          } else if (hasNeighbor(x, y)) {
+            color = style.outlineColor;
+            text = style.outline[(x + y + 32) % style.outline.length];
+          } else if (hasPixel(x - 2, y - 1)) {
+            color = style.shadowColor;
+            text = style.shadow;
+          } else if ((x * 11 + y * 17 + 101) % 47 === 0) {
+            color = style.outlineColor;
+            text = style.noise;
+          }
+
+          const previous = cells.at(-1);
+          if (previous && previous[0] === color) previous[1] += text;
+          else cells.push([color, text]);
+        }
+
+        lines.push(cells);
+      }
+
+      return lines;
+    }
+
+    const ansiLogos = [
+      [
+        ["cyan", "  ░▒▓██████╗ ██████╗  ██████╗ █████╗ ████████╗▓▒░"],
+        ["cyan", "     ██╔══██╗██╔══██╗██╔════╝██╔══██╗╚══██╔══╝"],
+        ["pink", "     ██████╔╝██████╔╝██║     ███████║   ██║"],
+        ["yellow", "     ██╔══██╗██╔══██╗██║     ██╔══██║   ██║"],
+        ["green", "     ██████╔╝██████╔╝╚██████╗██║  ██║   ██║"],
+        ["green", "     ╚═════╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝   ╚═╝"]
+      ],
+      [
+        [["yellow", "  /\\_/\\   "], ["cyan", "████  ████   ███   ███  █████"]],
+        [["orange", " ( o.o )  "], ["cyan", "█   █ █   █ █     █   █   █"]],
+        [["pink", "  > ^ <   "], ["purple", "████  ████  █     █████   █"]],
+        [["white", "  /|_|\\   "], ["purple", "█   █ █   █ █     █   █   █"]],
+        [["orange", " (_| |_)  "], ["cyan", "████  ████   ███  █   █   █"]],
+        [["orange", "    ~)      "], ["dim", "· ·  "], ["purple", "░▒▓▓▓▓▓▓▓▓▓▓"], ["pink", "▒░"], ["dim", "  · ·"]]
+      ],
+      [
+        [["dim", "  "], ["blue", "▓▓▓▓▒ "], ["purple", "▓▓▓▓▒  "], ["cyan", "▒▓▓▓▒  "], ["white", "░▓▓▒  "], ["blue", "▓▓▓▓▓"]],
+        [["dim", "  "], ["blue", "▓▒░▓▒ "], ["purple", "▓▒░▓▒ "], ["cyan", "▓▒░░░░ "], ["white", "▓▒░▓▒ "], ["blue", "  ▓▒"]],
+        [["dim", "  "], ["blue", "▓▓▓▓▒ "], ["purple", "▓▓▓▓▒ "], ["cyan", "▓▒     "], ["white", "▓▓▓▓▒ "], ["blue", "  ▓▒"]],
+        [["dim", "  "], ["blue", "▓▒░▓▒ "], ["purple", "▓▒░▓▒ "], ["cyan", "▓▒     "], ["white", "▓▒░▓▒ "], ["blue", "  ▓▒"]],
+        [["dim", "  "], ["blue", "▓▒░▓▒ "], ["purple", "▓▒░▓▒ "], ["cyan", "▓▒░░░░ "], ["white", "▓▒░▓▒ "], ["blue", "  ▓▒"]],
+        [["dim", "  "], ["blue", "▓▓▓▓▒ "], ["purple", "▓▓▓▓▒  "], ["cyan", "▒▓▓▓▒ "], ["white", "▓▒░▓▒ "], ["blue", "  ▓▒"]]
+      ],
+      [
+        ["green", "d8888b. d8888b.  .o88b.  .d8b.  d888888b"],
+        ["green", "88  `8D 88  `8D d8P  Y8 d8' `8b `~~88~~'"],
+        ["green", "88oooY' 88oooY' 8P      88ooo88    88"],
+        ["green", "88~~~b. 88~~~b. 8b      88~~~88    88"],
+        ["green", "88   8D 88   8D Y8b  d8 88   88    88"],
+        ["green", "Y8888P' Y8888P'  `Y88P' YP   YP    YP"]
+      ],
+      buildWildstyleLogo(),
+      buildCharacterLogo({
+        offsets: [0, 1, 0, 1, 0], gap: 2,
+        top: "m", fill: ["0", "f", "0", "1"], bottom: "L",
+        outline: [":", "."], shadow: "j", noise: ".",
+        faceColor: "white", highlightColor: "cyan", lowColor: "blue",
+        outlineColor: "dim", shadowColor: "blue"
+      }),
+      buildCharacterLogo({
+        offsets: [1, 0, 2, 0, 1], gap: 1,
+        top: "S", fill: ["S", "s", "i", "S", "l"], bottom: "l",
+        outline: [".", ":", "."], shadow: "'", noise: ",",
+        faceColor: "white", highlightColor: "white", lowColor: "dim",
+        outlineColor: "dim", shadowColor: "purple"
+      })
+    ];
+
+    const ansiLogo = document.querySelector("#ansi-logo");
+    const requestedLogo = Number.parseInt(new URLSearchParams(window.location.search).get("logo"), 10);
+    const logoIndex = requestedLogo >= 0 && requestedLogo < ansiLogos.length
+      ? requestedLogo
+      : Math.floor(Math.random() * ansiLogos.length);
+    const selectedLogo = ansiLogos[logoIndex];
+    const terminalTitle = document.querySelector("#terminal-title");
+    const logoFragment = document.createDocumentFragment();
+
+    terminalTitle.textContent = `bbs — 80×${selectedLogo.length + 6}`;
+    ansiLogo.classList.toggle("pixel-logo", logoIndex === 4);
+    ansiLogo.classList.toggle("classic-logo", logoIndex === 3);
+    ansiLogo.classList.toggle("textmode-logo", logoIndex >= 5);
+
+    selectedLogo.forEach((line, index) => {
+      const segments = typeof line[0] === "string" ? [line] : line;
+
+      segments.forEach(([color, text]) => {
+        const span = document.createElement("span");
+        span.className = color;
+        span.textContent = text;
+        logoFragment.append(span);
+      });
+
+      if (index < selectedLogo.length - 1) logoFragment.append("\n");
+    });
+
+    ansiLogo.replaceChildren(logoFragment);
+  </script>
 </body>
 </html>
