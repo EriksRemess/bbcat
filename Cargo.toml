@@ -1,6 +1,6 @@
 [package]
 name = "bbcat"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 description = "Decode ANSI and BBS art in Rust, view it in terminals, or export PNG, APNG, and GIF images"
 license = "MIT AND BSD-2-Clause AND Zlib AND LicenseRef-Empathy-font"
