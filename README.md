@@ -28,8 +28,9 @@ and 5 running a 64-bit OS. These packages contain development snapshots and
 may be unstable.
 
 ```console
-curl -LO "https://github.com/EriksRemess/bbcat/releases/download/tip/bbcat-tip-$(dpkg --print-architecture).deb"
-sudo apt install "./bbcat-tip-$(dpkg --print-architecture).deb"
+architecture="$(dpkg --print-architecture)"
+gh release download tip --repo EriksRemess/bbcat --pattern "*_${architecture}.deb"
+sudo apt install ./bbcat_*_"${architecture}.deb"
 ```
 
 ## Usage
