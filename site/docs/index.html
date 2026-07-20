@@ -239,6 +239,13 @@
 
     footer a { color: var(--text); text-decoration: none; }
 
+    .footer-links {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      white-space: nowrap;
+    }
+
     @media (max-width: 800px) {
       .docs-layout { grid-template-columns: 1fr; padding-top: 1.5rem; }
       .sidebar { position: static; }
@@ -316,8 +323,8 @@
           <h2>Install</h2>
           <p>Install bbcat from crates.io with Cargo:</p>
           <pre><code><span class="prompt">$</span> cargo install bbcat</code></pre>
-          <p>To build a checkout from source instead:</p>
-          <pre><code><span class="prompt">$</span> cargo build --release</code></pre>
+          <p>To install from a source checkout instead:</p>
+          <pre><code><span class="prompt">$</span> cargo install --path .</code></pre>
           <p class="muted">bbcat has no runtime dependencies and requires only a Rust toolchain capable of compiling its current Rust edition.</p>
         </section>
 
@@ -481,7 +488,10 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
 
     <footer>
       <span>bbcat · documentation</span>
-      <span><a href="https://github.com/EriksRemess/bbcat/blob/main/README.md">README on GitHub</a></span>
+      <span class="footer-links">
+        <a href="https://github.com/EriksRemess/bbcat/blob/main/README.md">README on GitHub</a>
+        <a href="https://github.com/EriksRemess/bbcat/issues">issues</a>
+      </span>
     </footer>
   </div>
 </body>

@@ -13,7 +13,11 @@ Browse and download BBS art packs at [16colo.rs](https://16colo.rs/).
 cargo install bbcat
 ```
 
-To build from source, run `cargo build --release`.
+To install from a source checkout, run:
+
+```console
+cargo install --path .
+```
 
 ## Usage
 
