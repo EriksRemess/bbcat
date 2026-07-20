@@ -386,7 +386,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
                 <tr><td>Kitty</td><td><code>--kitty</code></td><td>Renders bitmap glyphs through Kitty graphics, cropping at the terminal's right edge.</td></tr>
                 <tr><td>PNG</td><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Writes one indexed-color PNG; use <code>-</code> to write it to standard output.</td></tr>
                 <tr><td>APNG</td><td><code>--apng FILE</code></td><td>Writes a looping indexed-color animated PNG from an ANSI or DDW animation.</td></tr>
-                <tr><td>GIF</td><td><code>--gif FILE</code></td><td>Writes a looping 16-color animated GIF from an ANSI or DDW animation.</td></tr>
+                <tr><td>GIF</td><td><code>--gif FILE</code></td><td>Writes a looping indexed-color animated GIF from an ANSI or DDW animation.</td></tr>
               </tbody>
             </table>
           </div>
@@ -446,7 +446,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
         <section id="formats">
           <h2>Supported formats</h2>
           <ul>
-            <li><strong>ANSI and plain CP437 text</strong>, including <code>.ANS</code>, <code>.DIZ</code>, <code>.ASC</code>, <code>.NFO</code>, <code>.MEM</code>, and <code>.TXT</code>. Cursor movement, erasing, standard and bright colors, inverse video, blink/iCE colors, wrapping, SAUCE dimensions, and baud-paced ansimation are handled. Ansimation also preserves 256-color and true-color SGR sequences.</li>
+            <li><strong>ANSI and plain CP437 text</strong>, including <code>.ANS</code>, <code>.DIZ</code>, <code>.ASC</code>, <code>.NFO</code>, <code>.MEM</code>, and <code>.TXT</code>. Cursor movement, erasing, standard and bright colors, inverse video, blink/iCE colors, xterm-256 colors, wrapping, SAUCE dimensions, and baud-paced ansimation are handled. Ansimation also preserves true-color SGR sequences.</li>
             <li><strong>ASCIImation text streams</strong> containing a duration in 100 ms ticks followed by thirteen ASCII rows per frame. Because the format has no signature, use <code>--asciimation</code> in the CLI or <code>decode_asciimation</code> from Rust.</li>
             <li><strong>DarkDraw (<code>.DDW</code>)</strong> UTF-8 JSON Lines text art and animation. Objects are painted in source order, group references are expanded recursively, and each frame uses its declared duration. Dimensions come from metadata when present or are inferred from positioned text.</li>
             <li><strong>XBin (<code>.XB</code>)</strong> with embedded palettes, 8- or 16-color backgrounds, embedded fonts up to 32 pixels high, 256- and 512-character modes, and XBin RLE.</li>
@@ -474,7 +474,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
                 <tr><td><code>--sauce</code></td><td>Show available SAUCE title, author, group, and creation date below the artwork.</td></tr>
                 <tr><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Write an indexed-color PNG. Use <code>-</code> for standard output; requires exactly one input.</td></tr>
                 <tr><td><code>--apng FILE</code></td><td>Write a looping indexed-color animated PNG from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
-                <tr><td><code>--gif FILE</code></td><td>Write a looping 16-color animated GIF from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
+                <tr><td><code>--gif FILE</code></td><td>Write a looping indexed-color animated GIF from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
                 <tr><td><code>--asciimation</code></td><td>Play one explicit asciimation.co.nz-style stream containing a duration plus thirteen ASCII rows per frame. Requires exactly one input and terminal stdout; cannot be combined with Kitty/fit, image output, width, scaling, speed, or SAUCE options.</td></tr>
                 <tr><td><code>-h</code>, <code>--help</code></td><td>Print command help.</td></tr>
                 <tr><td><code>-V</code>, <code>--version</code></td><td>Print the bbcat version.</td></tr>

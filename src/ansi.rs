@@ -10,9 +10,12 @@
 pub struct Cell {
     /// CP437 byte value, or 0..=511 for an XBin font with 512 glyphs.
     pub character: u16,
-    /// Index into the screen's 16-color palette.
+    /// Index into the screen's color palette.
+    ///
+    /// ANSI and DDW screens may use all 256 xterm color indexes. Formats with
+    /// embedded palettes use indexes 0 through 15.
     pub foreground: u8,
-    /// Index into the screen's 16-color palette.
+    /// Index into the screen's color palette.
     pub background: u8,
 }
 
@@ -74,6 +77,33 @@ impl Screen {
     /// Returns the 16-color RGB palette used by graphical output.
     pub fn palette(&self) -> [[u8; 3]; 16] {
         self.palette.unwrap_or(crate::VGA_PALETTE)
+    }
+
+    /// Returns the RGB value for a color index used by this screen.
+    ///
+    /// The screen's embedded palette supplies indexes 0 through 15. Higher
+    /// indexes use the standard xterm 6x6x6 color cube and grayscale ramp.
+    pub fn color(&self, index: u8) -> [u8; 3] {
+        if index < 16 {
+            self.palette()[usize::from(index)]
+        } else {
+            crate::XTERM_256_PALETTE[usize::from(index)]
+        }
+    }
+
+    /// Returns the complete 256-color palette used by graphical output.
+    ///
+    /// For formats with an embedded 16-color palette, those entries replace
+    /// the first 16 xterm colors.
+    pub fn palette_256(&self) -> [[u8; 3]; 256] {
+        let mut palette = crate::XTERM_256_PALETTE;
+        let base = self.palette();
+        let mut index = 0;
+        while index < base.len() {
+            palette[index] = base[index];
+            index += 1;
+        }
+        palette
     }
 
     /// Returns glyph-major bitmap font data for character artwork.
@@ -490,7 +520,9 @@ impl Parser {
         } else {
             parameters
         };
-        for &parameter in parameters {
+        let mut index = 0;
+        while index < parameters.len() {
+            let parameter = parameters[index];
             match parameter {
                 0 => self.style = Style::default(),
                 1 => self.style.bold = true,
@@ -508,8 +540,27 @@ impl Parser {
                     self.style.bold = false;
                 }
                 100..=107 => self.style.background = (parameter - 100 + 8) as u8,
+                38 | 48 if parameters.get(index + 1) == Some(&5) => {
+                    if let Some(&color) = parameters.get(index + 2)
+                        && let Ok(color) = u8::try_from(color)
+                    {
+                        if parameter == 38 {
+                            self.style.foreground = color;
+                        } else {
+                            self.style.background = color;
+                        }
+                    }
+                    index = index.saturating_add(2);
+                }
+                // A true-color sequence cannot be represented by the indexed
+                // Screen model. Consume it as one unit so its RGB components
+                // are not mistaken for unrelated SGR attributes.
+                38 | 48 if parameters.get(index + 1) == Some(&2) => {
+                    index = index.saturating_add(4).min(parameters.len() - 1);
+                }
                 _ => {}
             }
+            index += 1;
         }
     }
 
@@ -647,6 +698,20 @@ mod tests {
     fn bold_selects_bright_foreground() {
         let screen = parse(b"\x1b[1;31mX", 1, None, false).unwrap();
         assert_eq!(screen.cells[0].foreground, 9);
+    }
+
+    #[test]
+    fn preserves_xterm_256_foreground_and_background() {
+        let screen = parse(b"\x1b[38;5;196;48;5;235mX", 1, None, false).unwrap();
+        assert_eq!(screen.cells[0].foreground, 196);
+        assert_eq!(screen.cells[0].background, 235);
+    }
+
+    #[test]
+    fn ignores_true_color_without_treating_rgb_as_sgr() {
+        let screen = parse(b"\x1b[38;2;1;5;7mX", 1, None, false).unwrap();
+        assert_eq!(screen.cells[0].foreground, 7);
+        assert_eq!(screen.cells[0].background, 0);
     }
 
     #[test]

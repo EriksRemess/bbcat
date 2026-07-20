@@ -2,7 +2,8 @@
 //!
 //! Frames first use bbcat's indexed PNG rasterizer. APNG can retain those
 //! compressed IDAT streams directly; GIF unpacks the same stored-zlib rows and
-//! writes a simple 16-color LZW stream. Keeping one raster path means terminal,
+//! writes a simple indexed-color LZW stream. Keeping one raster path means
+//! terminal,
 //! PNG, APNG, and GIF agree on fonts, palettes, and SAUCE letter spacing.
 
 use std::{collections::HashMap, time::Duration};
@@ -52,7 +53,7 @@ pub fn encode_animation_apng(
     Ok(output)
 }
 
-/// Encodes decoded animation frames as a looping 16-color GIF.
+/// Encodes decoded animation frames as a looping indexed-color GIF.
 pub fn encode_animation_gif(
     animation: &Animation,
     baud: u64,
@@ -62,14 +63,17 @@ pub fn encode_animation_gif(
     let first = &images[0].0;
     let width = u16::try_from(first.width).map_err(|_| "GIF width exceeds 65535 pixels")?;
     let height = u16::try_from(first.height).map_err(|_| "GIF height exceeds 65535 pixels")?;
-    if first.palette.len() != 16 * 3 {
-        return Err("GIF output requires a 16-color palette".to_owned());
-    }
+    let color_bits = match first.palette.len() {
+        48 => 4_u8,
+        768 => 8_u8,
+        _ => return Err("GIF output requires a 16- or 256-color palette".to_owned()),
+    };
 
     let mut output = b"GIF89a".to_vec();
     output.extend_from_slice(&width.to_le_bytes());
     output.extend_from_slice(&height.to_le_bytes());
-    output.extend_from_slice(&[0xb3, 0, 0]); // 16-color global table, 4-bit resolution
+    let table_size = color_bits - 1;
+    output.extend_from_slice(&[0x80 | (table_size << 4) | table_size, 0, 0]);
     output.extend_from_slice(&first.palette);
     output.extend_from_slice(b"\x21\xff\x0bNETSCAPE2.0\x03\x01\x00\x00\x00");
 
@@ -84,8 +88,8 @@ pub fn encode_animation_gif(
         output.extend_from_slice(&width.to_le_bytes());
         output.extend_from_slice(&height.to_le_bytes());
         output.push(0); // use the global palette
-        output.push(4); // LZW minimum code size
-        gif_sub_blocks(&mut output, &gif_lzw(&pixels));
+        output.push(color_bits); // LZW minimum code size
+        gif_sub_blocks(&mut output, &gif_lzw(&pixels, color_bits));
     }
     output.push(0x3b);
     Ok(output)
@@ -104,8 +108,18 @@ fn rendered_frames(
     }
     let mut result = Vec::with_capacity(animation.frames.len());
     let mut expected = None;
+    let force_8_bit = animation
+        .frames
+        .iter()
+        .any(|frame| png::uses_xterm_256(&frame.screen));
     for frame in &animation.frames {
-        let png = png::encode_screen_scaled(&frame.screen, 0, frame.screen.height, scale)?;
+        let png = png::encode_screen_scaled_with_depth(
+            &frame.screen,
+            0,
+            frame.screen.height,
+            scale,
+            force_8_bit,
+        )?;
         let image = parse_png(&png)?;
         if let Some((ihdr, palette)) = expected.as_ref() {
             if image.ihdr != *ihdr || image.palette != *palette {
@@ -172,8 +186,8 @@ fn parse_png(data: &[u8]) -> Result<FrameImage, String> {
         offset = crc_end;
     }
     let ihdr = ihdr.ok_or("internal PNG is missing IHDR")?;
-    if ihdr.len() != 13 || ihdr[8..] != [4, 3, 0, 0, 0] {
-        return Err("internal PNG is not 4-bit indexed color".to_owned());
+    if ihdr.len() != 13 || !matches!(ihdr[8], 4 | 8) || ihdr[9..] != [3, 0, 0, 0] {
+        return Err("internal PNG is not supported indexed color".to_owned());
     }
     let width = u32::from_be_bytes(ihdr[0..4].try_into().unwrap());
     let height = u32::from_be_bytes(ihdr[4..8].try_into().unwrap());
@@ -269,7 +283,12 @@ fn png_pixels(image: &FrameImage) -> Result<Vec<u8>, String> {
     let raw = zlib_store_decode(&image.idat)?;
     let width = image.width as usize;
     let height = image.height as usize;
-    let row_bytes = width.div_ceil(2);
+    let bit_depth = image.ihdr[8];
+    let row_bytes = if bit_depth == 8 {
+        width
+    } else {
+        width.div_ceil(2)
+    };
     if raw.len()
         != height
             .checked_mul(row_bytes + 1)
@@ -282,13 +301,17 @@ fn png_pixels(image: &FrameImage) -> Result<Vec<u8>, String> {
         if row[0] != 0 {
             return Err("internal PNG uses an unsupported row filter".to_owned());
         }
-        for pixel in 0..width {
-            let packed = row[1 + pixel / 2];
-            pixels.push(if pixel % 2 == 0 {
-                packed >> 4
-            } else {
-                packed & 0x0f
-            });
+        if bit_depth == 8 {
+            pixels.extend_from_slice(&row[1..]);
+        } else {
+            for pixel in 0..width {
+                let packed = row[1 + pixel / 2];
+                pixels.push(if pixel % 2 == 0 {
+                    packed >> 4
+                } else {
+                    packed & 0x0f
+                });
+            }
         }
     }
     Ok(pixels)
@@ -337,13 +360,13 @@ fn zlib_store_decode(data: &[u8]) -> Result<Vec<u8>, String> {
     Ok(output)
 }
 
-fn gif_lzw(pixels: &[u8]) -> Vec<u8> {
-    let clear = 16_u16;
-    let end = 17_u16;
+fn gif_lzw(pixels: &[u8], minimum_code_size: u8) -> Vec<u8> {
+    let clear = 1_u16 << minimum_code_size;
+    let end = clear + 1;
     let mut bits = BitWriter::default();
     let mut dictionary = HashMap::new();
-    let mut code_size = 5_u8;
-    let mut next_code = 18_u16;
+    let mut code_size = minimum_code_size + 1;
+    let mut next_code = end + 1;
     bits.push(clear, code_size);
     let Some((&first, rest)) = pixels.split_first() else {
         bits.push(end, code_size);
@@ -368,8 +391,8 @@ fn gif_lzw(pixels: &[u8]) -> Vec<u8> {
         } else {
             bits.push(clear, code_size);
             dictionary.clear();
-            code_size = 5;
-            next_code = 18;
+            code_size = minimum_code_size + 1;
+            next_code = end + 1;
         }
         current = u16::from(pixel);
     }
@@ -472,6 +495,19 @@ mod tests {
             2
         );
         assert_eq!(gif.last(), Some(&0x3b));
+    }
+
+    #[test]
+    fn writes_256_color_apng_and_gif_frames() {
+        let mut animation = animation();
+        animation.frames[1].screen.cells[0].foreground = 196;
+
+        let apng = encode_animation_apng(&animation, DEFAULT_ANIMATION_BAUD, 1).unwrap();
+        assert_eq!(apng[24], 8);
+
+        let gif = encode_animation_gif(&animation, DEFAULT_ANIMATION_BAUD, 1).unwrap();
+        assert_eq!(gif[10], 0xf7);
+        assert_eq!(&gif[13 + 196 * 3..13 + 196 * 3 + 3], &[255, 0, 0]);
     }
 
     #[test]

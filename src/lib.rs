@@ -62,7 +62,7 @@ pub use kitty::{
     write_screen_slow_cropped, write_screen_slow_fit, write_screen_slow_scaled,
     write_screen_slow_scaled_cropped, write_screen_slow_scaled_fit,
 };
-pub use png::{VGA_PALETTE, encode_screen, encode_screen_scaled};
+pub use png::{VGA_PALETTE, XTERM_256_PALETTE, encode_screen, encode_screen_scaled};
 pub use sauce::{LetterSpacing, Sauce};
 pub use text::{
     DEFAULT_ANIMATION_BAUD, write_animation, write_animation_at_baud, write_screen as write_text,
@@ -187,7 +187,7 @@ impl Document {
         encode_animation_apng(animation, baud, scale).map_err(Error::from)
     }
 
-    /// Encodes all animation frames as a looping 16-color GIF.
+    /// Encodes all animation frames as a looping indexed-color GIF.
     ///
     /// `baud` controls ANSI source-byte timing and scales native DDW timing;
     /// [`DEFAULT_ANIMATION_BAUD`] preserves the default playback speed.

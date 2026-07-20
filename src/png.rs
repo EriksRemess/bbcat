@@ -5,7 +5,8 @@
 //! background. SAUCE can request a nine-pixel VGA cell, whose extra column
 //! reproduces the hardware's line-graphics extension. RIPscrip already supplies
 //! indexed pixels and skips that step.
-//! Both paths produce a 4-bit indexed PNG with a 16-color palette.
+//! Classic artwork produces a 4-bit indexed PNG. ANSI and DDW screens that use
+//! xterm-256 colors produce an 8-bit indexed PNG with the complete palette.
 
 use crate::{Screen, font};
 
@@ -29,6 +30,45 @@ pub const VGA_PALETTE: [[u8; 3]; 16] = [
     [0xff, 0xff, 0xff],
 ];
 
+/// The xterm 256-color palette, using VGA-compatible values for its first 16
+/// entries and the standard color cube and grayscale ramp for the remainder.
+pub const XTERM_256_PALETTE: [[u8; 3]; 256] = xterm_256_palette();
+
+const fn xterm_256_palette() -> [[u8; 3]; 256] {
+    let mut palette = [[0_u8; 3]; 256];
+    let mut index = 0;
+    while index < 16 {
+        palette[index] = VGA_PALETTE[index];
+        index += 1;
+    }
+    while index < 232 {
+        let value = index - 16;
+        palette[index] = [
+            cube_level(value / 36),
+            cube_level((value / 6) % 6),
+            cube_level(value % 6),
+        ];
+        index += 1;
+    }
+    while index < 256 {
+        let level = 8 + ((index - 232) as u8) * 10;
+        palette[index] = [level, level, level];
+        index += 1;
+    }
+    palette
+}
+
+const fn cube_level(value: usize) -> u8 {
+    match value {
+        0 => 0,
+        1 => 95,
+        2 => 135,
+        3 => 175,
+        4 => 215,
+        _ => 255,
+    }
+}
+
 const MAX_PNG_PIXELS: usize = 100_000_000;
 
 /// Encodes a contiguous range of character rows as an indexed-color PNG.
@@ -42,6 +82,16 @@ pub fn encode_screen_scaled(
     first_row: usize,
     rows: usize,
     scale: usize,
+) -> Result<Vec<u8>, String> {
+    encode_screen_scaled_with_depth(screen, first_row, rows, scale, false)
+}
+
+pub(crate) fn encode_screen_scaled_with_depth(
+    screen: &Screen,
+    first_row: usize,
+    rows: usize,
+    scale: usize,
+    force_8_bit: bool,
 ) -> Result<Vec<u8>, String> {
     if scale == 0 {
         return Err("PNG scale must be non-zero".to_owned());
@@ -65,6 +115,11 @@ pub fn encode_screen_scaled(
             scale,
         );
     }
+    let bit_depth = if force_8_bit || uses_xterm_256(screen) {
+        8
+    } else {
+        4
+    };
     let width = screen
         .width
         .checked_mul(screen.glyph_width)
@@ -82,7 +137,7 @@ pub fn encode_screen_scaled(
             "PNG output exceeds the {MAX_PNG_PIXELS} pixel safety limit"
         ));
     }
-    let scanline_bytes = 1 + width.div_ceil(2);
+    let scanline_bytes = 1 + row_bytes(width, bit_depth);
     let capacity = scanline_bytes
         .checked_mul(height)
         .ok_or("PNG buffer size overflow")?;
@@ -114,9 +169,9 @@ pub fn encode_screen_scaled(
                             cell.foreground
                         } else {
                             cell.background
-                        } & 0x0f;
+                        };
                         for _ in 0..scale {
-                            push_color(&mut pixels, &mut high_nibble, color);
+                            push_color(&mut pixels, &mut high_nibble, color, bit_depth);
                         }
                     }
                 }
@@ -127,25 +182,13 @@ pub fn encode_screen_scaled(
         }
     }
 
-    // PNG is a signature followed by length/type/data/CRC chunks. IHDR declares
-    // 4-bit indexed color, PLTE supplies RGB values, and IDAT holds scanlines.
-    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
-    let mut ihdr = Vec::with_capacity(13);
-    ihdr.extend_from_slice(&(width as u32).to_be_bytes());
-    ihdr.extend_from_slice(&(height as u32).to_be_bytes());
-    ihdr.extend_from_slice(&[4, 3, 0, 0, 0]); // 4-bit indexed color
-    chunk(&mut png, b"IHDR", &ihdr);
-
-    let palette: Vec<u8> = screen
-        .palette
-        .unwrap_or(VGA_PALETTE)
-        .into_iter()
-        .flatten()
-        .collect();
-    chunk(&mut png, b"PLTE", &palette);
-    chunk(&mut png, b"IDAT", &zlib_store(&pixels));
-    chunk(&mut png, b"IEND", &[]);
-    Ok(png)
+    Ok(indexed_png(
+        width,
+        height,
+        &pixels,
+        &palette_bytes(screen, bit_depth),
+        bit_depth,
+    ))
 }
 
 pub(crate) fn encode_screen_scaled_fit(
@@ -229,7 +272,8 @@ fn encode_screen_scaled_width(
     } else {
         requested_height
     };
-    let mut pixels = packed_buffer(width, height)?;
+    let bit_depth = if uses_xterm_256(screen) { 8 } else { 4 };
+    let mut pixels = packed_buffer(width, height, bit_depth)?;
     let glyphs: &[u8] = match &screen.font {
         Some(font) => font,
         None => font::glyphs(),
@@ -259,8 +303,8 @@ fn encode_screen_scaled_width(
                 cell.foreground
             } else {
                 cell.background
-            } & 0x0f;
-            push_color(&mut pixels, &mut high_nibble, color);
+            };
+            push_color(&mut pixels, &mut high_nibble, color, bit_depth);
         }
         if let Some(high) = high_nibble {
             pixels.push(high << 4);
@@ -271,7 +315,8 @@ fn encode_screen_scaled_width(
         width,
         height,
         &pixels,
-        screen.palette.unwrap_or(VGA_PALETTE),
+        &palette_bytes(screen, bit_depth),
+        bit_depth,
     ))
 }
 
@@ -313,7 +358,7 @@ fn encode_indexed_width(
     } else {
         requested_height
     };
-    let mut pixels = packed_buffer(width, height)?;
+    let mut pixels = packed_buffer(width, height, 4)?;
     for y in 0..height {
         pixels.push(0);
         let mut high_nibble = None;
@@ -328,13 +373,20 @@ fn encode_indexed_width(
                 &mut pixels,
                 &mut high_nibble,
                 colors[source_y * source_width + source_x] & 0x0f,
+                4,
             );
         }
         if let Some(high) = high_nibble {
             pixels.push(high << 4);
         }
     }
-    Ok(indexed_png(width, height, &pixels, palette))
+    Ok(indexed_png(
+        width,
+        height,
+        &pixels,
+        &palette.into_iter().flatten().collect::<Vec<_>>(),
+        4,
+    ))
 }
 
 fn fitted_height(width: usize, height: usize, fitted_width: usize) -> Result<usize, String> {
@@ -348,7 +400,7 @@ fn scaled_coordinate(position: usize, source_length: usize, target_length: usize
     ((position as u128 * source_length as u128) / target_length as u128) as usize
 }
 
-fn packed_buffer(width: usize, height: usize) -> Result<Vec<u8>, String> {
+fn packed_buffer(width: usize, height: usize, bit_depth: u8) -> Result<Vec<u8>, String> {
     let pixel_count = width
         .checked_mul(height)
         .ok_or("PNG pixel count overflow")?;
@@ -357,24 +409,26 @@ fn packed_buffer(width: usize, height: usize) -> Result<Vec<u8>, String> {
             "PNG output exceeds the {MAX_PNG_PIXELS} pixel safety limit"
         ));
     }
-    let capacity = (1 + width.div_ceil(2))
+    let capacity = (1 + row_bytes(width, bit_depth))
         .checked_mul(height)
         .ok_or("PNG buffer size overflow")?;
     Ok(Vec::with_capacity(capacity))
 }
 
-fn indexed_png(width: usize, height: usize, pixels: &[u8], palette: [[u8; 3]; 16]) -> Vec<u8> {
+fn indexed_png(
+    width: usize,
+    height: usize,
+    pixels: &[u8],
+    palette: &[u8],
+    bit_depth: u8,
+) -> Vec<u8> {
     let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
     let mut ihdr = Vec::with_capacity(13);
     ihdr.extend_from_slice(&(width as u32).to_be_bytes());
     ihdr.extend_from_slice(&(height as u32).to_be_bytes());
-    ihdr.extend_from_slice(&[4, 3, 0, 0, 0]);
+    ihdr.extend_from_slice(&[bit_depth, 3, 0, 0, 0]);
     chunk(&mut png, b"IHDR", &ihdr);
-    chunk(
-        &mut png,
-        b"PLTE",
-        &palette.into_iter().flatten().collect::<Vec<_>>(),
-    );
+    chunk(&mut png, b"PLTE", palette);
     chunk(&mut png, b"IDAT", &zlib_store(pixels));
     chunk(&mut png, b"IEND", &[]);
     png
@@ -414,7 +468,7 @@ fn encode_indexed_scaled(
             let mut high_nibble = None;
             for &color in row {
                 for _ in 0..scale {
-                    push_color(&mut pixels, &mut high_nibble, color & 0x0f);
+                    push_color(&mut pixels, &mut high_nibble, color & 0x0f, 4);
                 }
             }
             if let Some(high) = high_nibble {
@@ -423,28 +477,48 @@ fn encode_indexed_scaled(
         }
     }
 
-    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
-    let mut ihdr = Vec::with_capacity(13);
-    ihdr.extend_from_slice(&(width as u32).to_be_bytes());
-    ihdr.extend_from_slice(&(height as u32).to_be_bytes());
-    ihdr.extend_from_slice(&[4, 3, 0, 0, 0]);
-    chunk(&mut png, b"IHDR", &ihdr);
-    chunk(
-        &mut png,
-        b"PLTE",
+    Ok(indexed_png(
+        width,
+        height,
+        &pixels,
         &palette.into_iter().flatten().collect::<Vec<_>>(),
-    );
-    chunk(&mut png, b"IDAT", &zlib_store(&pixels));
-    chunk(&mut png, b"IEND", &[]);
-    Ok(png)
+        4,
+    ))
 }
 
-fn push_color(pixels: &mut Vec<u8>, high_nibble: &mut Option<u8>, color: u8) {
+fn push_color(pixels: &mut Vec<u8>, high_nibble: &mut Option<u8>, color: u8, bit_depth: u8) {
+    if bit_depth == 8 {
+        pixels.push(color);
+        return;
+    }
     // At four bits per pixel, two palette indices share each scanline byte.
     if let Some(high) = high_nibble.take() {
         pixels.push((high << 4) | color);
     } else {
         *high_nibble = Some(color);
+    }
+}
+
+fn row_bytes(width: usize, bit_depth: u8) -> usize {
+    if bit_depth == 8 {
+        width
+    } else {
+        width.div_ceil(2)
+    }
+}
+
+pub(crate) fn uses_xterm_256(screen: &Screen) -> bool {
+    screen
+        .cells
+        .iter()
+        .any(|cell| cell.foreground >= 16 || cell.background >= 16)
+}
+
+fn palette_bytes(screen: &Screen, bit_depth: u8) -> Vec<u8> {
+    if bit_depth == 8 {
+        screen.palette_256().into_iter().flatten().collect()
+    } else {
+        screen.palette().into_iter().flatten().collect()
     }
 }
 
@@ -523,6 +597,47 @@ mod tests {
         assert_eq!(&png[12..16], b"IHDR");
         assert_eq!(&png[24..29], &[4, 3, 0, 0, 0]);
         assert!(png.windows(4).any(|window| window == b"IEND"));
+    }
+
+    #[test]
+    fn writes_xterm_256_indexes_as_eight_bit_png_pixels() {
+        let screen = Screen {
+            width: 1,
+            height: 1,
+            cells: vec![Cell {
+                character: u16::from(b'X'),
+                foreground: 196,
+                background: 235,
+            }],
+            glyph_width: 8,
+            glyph_height: 16,
+            font: Some(vec![0xff; 256 * 16]),
+            palette: None,
+            utf8_supported: true,
+            raster: None,
+        };
+        let png = encode_screen(&screen, 0, 1).unwrap();
+
+        assert_eq!(&png[24..29], &[8, 3, 0, 0, 0]);
+        let palette = chunk_payload(&png, b"PLTE");
+        assert_eq!(palette.len(), 256 * 3);
+        assert_eq!(&palette[196 * 3..196 * 3 + 3], &[255, 0, 0]);
+
+        let idat = chunk_payload(&png, b"IDAT");
+        let scanlines = &idat[7..idat.len() - 4];
+        assert_eq!(scanlines[0], 0);
+        assert_eq!(&scanlines[1..9], &[196; 8]);
+    }
+
+    fn chunk_payload<'a>(png: &'a [u8], expected: &[u8; 4]) -> &'a [u8] {
+        let mut offset = 8;
+        loop {
+            let length = u32::from_be_bytes(png[offset..offset + 4].try_into().unwrap()) as usize;
+            if &png[offset + 4..offset + 8] == expected {
+                return &png[offset + 8..offset + 8 + length];
+            }
+            offset += 12 + length;
+        }
     }
 
     #[test]

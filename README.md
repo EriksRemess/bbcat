@@ -103,7 +103,7 @@ See the complete [library API documentation](https://docs.rs/bbcat/) on docs.rs.
 | Kitty | `--kitty` | Renders bitmap glyphs through Kitty graphics, cropping at the terminal's right edge. |
 | PNG | `-o FILE`, `--output FILE` | Writes one indexed-color PNG; use `-` to write it to standard output. |
 | APNG | `--apng FILE` | Writes a looping indexed-color animated PNG from an ANSI or DDW animation. |
-| GIF | `--gif FILE` | Writes a looping 16-color animated GIF from an ANSI or DDW animation. |
+| GIF | `--gif FILE` | Writes a looping indexed-color animated GIF from an ANSI or DDW animation. |
 
 Kitty mode requires terminal stdout and a terminal that answers bbcat's Kitty
 graphics protocol probe. [Kitty](https://sw.kovidgoyal.net/kitty/) and
@@ -231,8 +231,8 @@ always retains its full dimensions.
 
 - ANSI and plain CP437 text, including `.ANS`, `.DIZ`, `.ASC`, `.NFO`, `.MEM`,
   and `.TXT`. ANSI cursor movement, erasing, standard and bright colors,
-  inverse video, blink/iCE colors, wrapping, SAUCE dimensions, and baud-paced
-  ansimation are handled. Ansimation playback also preserves 256-color and
+  inverse video, blink/iCE colors, xterm-256 colors, wrapping, SAUCE dimensions,
+  and baud-paced ansimation are handled. Ansimation playback also preserves
   true-color SGR sequences.
 - ASCIImation text streams containing a duration in 100 ms ticks followed by
   thirteen ASCII rows per frame. Because the format has no signature, use
@@ -243,7 +243,8 @@ always retains its full dimensions.
   declared duration. A `Dimensions` metadata record is used when present;
   otherwise bbcat infers the canvas from the positioned text. Terminal playback
   preserves Unicode glyphs and 16- and 256-color styles; graphical output uses
-  a CP437/VGA approximation where necessary. APNG and GIF retain every frame.
+  the same color indexes with a CP437 glyph approximation where necessary.
+  APNG and GIF retain every frame.
 - XBin (`.XB`) with embedded palettes, 8- or 16-color backgrounds, embedded
   fonts up to 32 pixels high, 256- and 512-character modes, and XBin RLE.
 - ArtWorx Data Format (`.ADF`) version 1 with its embedded palette and 8x16
@@ -283,7 +284,7 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 | `--sauce` | Show the available SAUCE title, author, group, and creation date below the artwork. |
 | `-o FILE`, `--output FILE` | Write an indexed-color PNG. Use `-` for standard output; requires exactly one input. |
 | `--apng FILE` | Write a looping indexed-color animated PNG from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
-| `--gif FILE` | Write a looping 16-color animated GIF from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
+| `--gif FILE` | Write a looping indexed-color animated GIF from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
 | `--asciimation` | Play one explicit asciimation.co.nz-style text stream: a duration plus thirteen ASCII rows per frame. Requires exactly one input and terminal stdout; cannot be combined with Kitty/fit, image output, width, scaling, speed, or SAUCE options. |
 | `-h`, `--help` | Print command help. |
 | `-V`, `--version` | Print the bbcat version. |

@@ -7,7 +7,7 @@
 
 use std::{collections::BTreeMap, time::Duration};
 
-use crate::{Cell, Sauce, Screen, ansi::MAX_CELLS, png::VGA_PALETTE, text::CP437};
+use crate::{Cell, Sauce, Screen, ansi::MAX_CELLS, text::CP437};
 
 pub(crate) struct ParsedDdw {
     pub screen: Screen,
@@ -252,7 +252,7 @@ impl Style {
     }
 
     fn screen_colors(self) -> (u8, u8) {
-        let mut colors = (to_vga(self.foreground), to_vga(self.background));
+        let mut colors = (self.foreground, self.background);
         if self.reverse {
             colors = (colors.1, colors.0);
         }
@@ -295,36 +295,6 @@ fn color(value: &str) -> Option<u8> {
             _ => return None,
         })
     })
-}
-
-fn to_vga(color: u8) -> u8 {
-    if color < 16 {
-        return color;
-    }
-    let rgb = if color >= 232 {
-        let level = 8 + (color - 232) * 10;
-        [level, level, level]
-    } else {
-        let value = color - 16;
-        let (red, green, blue) = (value / 36, (value / 6) % 6, value % 6);
-        [cube_level(red), cube_level(green), cube_level(blue)]
-    };
-    VGA_PALETTE
-        .iter()
-        .enumerate()
-        .min_by_key(|(_, palette)| color_distance(rgb, **palette))
-        .map_or(7, |(index, _)| index as u8)
-}
-
-fn cube_level(value: u8) -> u8 {
-    [0, 95, 135, 175, 215, 255][usize::from(value)]
-}
-
-fn color_distance(left: [u8; 3], right: [u8; 3]) -> u32 {
-    left.into_iter()
-        .zip(right)
-        .map(|(left, right)| u32::from(left.abs_diff(right)).pow(2))
-        .sum()
 }
 
 fn paint_frame(
@@ -921,6 +891,7 @@ mod tests {
                 .unwrap()
                 .contains("38;5;247")
         );
+        assert_eq!(parsed.screen.cells[6].foreground, 247);
     }
 
     #[test]

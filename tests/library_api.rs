@@ -21,11 +21,32 @@ fn decodes_and_encodes_through_the_public_api() -> Result<(), Box<dyn StdError>>
     assert_eq!(document.screen.glyph_dimensions(), (8, 16));
     assert_eq!(document.screen.pixel_dimensions(), Some((32, 16)));
     assert_eq!(document.screen.palette(), bbcat::VGA_PALETTE);
+    assert_eq!(document.screen.color(196), [255, 0, 0]);
+    assert_eq!(document.screen.palette_256()[235], [38, 38, 38]);
     assert_eq!(document.screen.font().unwrap().len(), 256 * 16);
     assert!(document.screen.raster().is_none());
 
     let png = document.encode_png(1)?;
     assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+    Ok(())
+}
+
+#[test]
+fn preserves_xterm_256_colors_in_screen_and_png() -> Result<(), Box<dyn StdError>> {
+    let document = bbcat::decode_with_options(
+        b"\x1b[38;5;196;48;5;235mX",
+        DecodeOptions {
+            file_name: Some(Path::new("colors.ans")),
+            width: Some(1),
+        },
+    )?;
+    let cell = document.screen.cell(0, 0).unwrap();
+    assert_eq!((cell.foreground, cell.background), (196, 235));
+    assert_eq!(document.screen.color(cell.foreground), [255, 0, 0]);
+    assert_eq!(document.screen.color(cell.background), [38, 38, 38]);
+
+    let png = document.encode_png(1)?;
+    assert_eq!(png[24], 8);
     Ok(())
 }
 

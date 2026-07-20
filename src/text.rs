@@ -501,17 +501,15 @@ fn write_screen_inner<W: Write>(
         ));
     }
     validate_text_screen(screen)?;
-    let palette = screen.palette.unwrap_or(VGA_PALETTE);
-
     for (row_index, row) in screen.cells.chunks_exact(screen.width).enumerate() {
         let mut active_colors = None;
         for cell in row.iter().take(columns) {
-            let colors = (cell.foreground & 0x0f, cell.background & 0x0f);
+            let colors = (cell.foreground, cell.background);
             if active_colors != Some(colors) {
                 // Emit 24-bit SGR colors only when the pair changes, rather than
                 // repeating an escape sequence before every character.
-                let foreground = palette[usize::from(colors.0)];
-                let background = palette[usize::from(colors.1)];
+                let foreground = screen.color(colors.0);
+                let background = screen.color(colors.1);
                 write!(
                     output,
                     "\x1b[38;2;{};{};{};48;2;{};{};{}m",
@@ -604,6 +602,24 @@ mod tests {
         assert_eq!(
             String::from_utf8(output).unwrap(),
             "\x1b[38;2;170;0;0;48;2;0;170;0m♥█\x1b[0m\r\n"
+        );
+    }
+
+    #[test]
+    fn maps_xterm_256_indexes_to_true_color() {
+        let mut output = Vec::new();
+        write_screen(
+            &mut output,
+            &screen(vec![Cell {
+                character: u16::from(b'X'),
+                foreground: 196,
+                background: 235,
+            }]),
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "\x1b[38;2;255;0;0;48;2;38;38;38mX\x1b[0m\r\n"
         );
     }
 
