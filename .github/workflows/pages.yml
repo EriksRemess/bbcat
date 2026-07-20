@@ -8,6 +8,7 @@ on:
       - Cargo.toml
       - site/favicon.svg
       - site/index.html
+      - site/docs/**
       - site/robots.txt
   workflow_dispatch:
 
@@ -44,6 +45,8 @@ jobs:
 
           mkdir _site
           sed "s|v<!-- BBCAT_VERSION -->[^<]*|v<!-- BBCAT_VERSION -->$version|" site/index.html > _site/index.html
+          mkdir _site/docs
+          sed "s|v<!-- BBCAT_VERSION -->[^<]*|v<!-- BBCAT_VERSION -->$version|" site/docs/index.html > _site/docs/index.html
           cp site/favicon.svg _site/favicon.svg
           cp site/robots.txt _site/robots.txt
 

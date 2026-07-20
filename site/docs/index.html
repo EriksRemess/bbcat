@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Documentation for bbcat, a terminal viewer and image converter for ANSI and BBS art.">
+  <link rel="canonical" href="https://bbcat.dev/docs/">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <title>Documentation — bbcat</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0b0f;
+      --panel: #11131a;
+      --code: #08090c;
+      --line: #282c38;
+      --text: #f2f4f8;
+      --muted: #9ba3b4;
+      --green: #66e28a;
+      --cyan: #63d9e6;
+      --yellow: #f2d96b;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 2rem; }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background:
+        radial-gradient(circle at 85% 8%, rgba(99, 217, 230, 0.07), transparent 30rem),
+        var(--bg);
+      background-repeat: no-repeat;
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      line-height: 1.65;
+    }
+
+    a { color: var(--cyan); }
+    a:hover, a:focus-visible { color: var(--green); }
+
+    .shell {
+      width: min(1180px, calc(100% - 2rem));
+      margin: 0 auto;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 72px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: var(--green);
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      text-decoration: none;
+    }
+
+    .brand::before { content: "❯"; }
+
+    .version {
+      padding: 0.2rem 0.55rem;
+      border: 1px solid #32443a;
+      border-radius: 999px;
+      color: var(--green);
+      background: rgba(102, 226, 138, 0.06);
+      font-size: 0.72rem;
+      line-height: 1.4;
+    }
+
+    header nav { display: flex; gap: 1.5rem; }
+    header nav a { color: var(--muted); font-size: 0.86rem; text-decoration: none; }
+
+    .docs-layout {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 760px);
+      justify-content: space-between;
+      gap: clamp(2rem, 7vw, 6rem);
+      padding: 3rem 0 5rem;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 2rem;
+      align-self: start;
+    }
+
+    .sidebar strong {
+      display: block;
+      margin-bottom: 0.75rem;
+      color: var(--text);
+      font-family: system-ui, sans-serif;
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .sidebar nav { display: grid; }
+
+    .sidebar a {
+      padding: 0.32rem 0;
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-decoration: none;
+    }
+
+    .sidebar a:hover, .sidebar a:focus-visible { color: var(--green); }
+
+    main { min-width: 0; }
+
+    .eyebrow {
+      margin: 0 0 0.75rem;
+      color: var(--green);
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3 {
+      font-family: system-ui, sans-serif;
+      letter-spacing: -0.035em;
+      line-height: 1.15;
+    }
+
+    h1 { margin: 0; font-size: clamp(2.6rem, 7vw, 4.5rem); }
+
+    h2 {
+      margin: 4rem 0 1rem;
+      padding-top: 0.25rem;
+      font-size: 1.8rem;
+    }
+
+    h3 { margin: 2.2rem 0 0.75rem; font-size: 1.15rem; }
+
+    p { margin: 0.85rem 0; }
+    .lede { max-width: 46rem; color: var(--muted); font-size: 1.05rem; }
+    .muted { color: var(--muted); }
+
+    code {
+      padding: 0.12rem 0.32rem;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.055);
+      color: var(--yellow);
+      font: inherit;
+      font-size: 0.9em;
+    }
+
+    pre {
+      margin: 1rem 0 1.5rem;
+      padding: 1rem 1.15rem;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--code);
+      color: var(--text);
+      line-height: 1.55;
+    }
+
+    pre code { padding: 0; background: none; color: inherit; font-size: 0.88rem; }
+    .prompt { color: var(--green); user-select: none; }
+
+    .callout {
+      margin: 1.5rem 0;
+      padding: 1rem 1.15rem;
+      border: 1px solid #32443a;
+      border-left: 3px solid var(--green);
+      border-radius: 6px;
+      background: rgba(102, 226, 138, 0.04);
+    }
+
+    .callout p { margin: 0; }
+
+    .table-wrap {
+      margin: 1rem 0 1.5rem;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+    th, td { padding: 0.8rem 0.9rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--text); background: var(--panel); }
+    td { color: var(--muted); }
+    tr:last-child td { border-bottom: 0; }
+    td:first-child { color: var(--text); white-space: nowrap; }
+
+    ul { padding-left: 1.3rem; }
+    li { margin: 0.65rem 0; }
+    li::marker { color: var(--green); }
+
+    .mobile-jump { display: none; }
+
+    .on-this-page {
+      display: none;
+      width: 100%;
+      padding: 0.7rem 0.85rem;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.5rem 0 2rem;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 0.76rem;
+    }
+
+    footer a { color: var(--text); text-decoration: none; }
+
+    @media (max-width: 800px) {
+      .docs-layout { grid-template-columns: 1fr; padding-top: 1.5rem; }
+      .sidebar { position: static; }
+      .sidebar strong, .sidebar nav { display: none; }
+      .mobile-jump { display: grid; gap: 0.5rem; color: var(--muted); font-size: 0.8rem; }
+      .on-this-page { display: block; }
+      h2 { margin-top: 3rem; }
+    }
+
+    @media (max-width: 520px) {
+      header { min-height: 62px; }
+      header nav a:not(:first-child) { display: none; }
+      .shell { width: min(100% - 1.25rem, 1180px); }
+      .docs-layout { gap: 1rem; }
+      th, td { padding: 0.65rem; }
+      footer { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="header-brand">
+        <a class="brand" href="/">bbcat</a>
+        <span class="version">v<!-- BBCAT_VERSION -->0.4.0</span>
+      </div>
+      <nav aria-label="Primary navigation">
+        <a href="/">home</a>
+        <a href="https://crates.io/crates/bbcat">crates.io</a>
+        <a href="https://github.com/EriksRemess/bbcat">source</a>
+      </nav>
+    </header>
+
+    <div class="docs-layout">
+      <aside class="sidebar">
+        <label class="mobile-jump">
+          <span>Jump to a section</span>
+          <select class="on-this-page" aria-label="Jump to a documentation section" onchange="if (this.value) location.hash = this.value">
+            <option value="">Choose…</option>
+            <option value="install">Install</option>
+            <option value="usage">Usage</option>
+            <option value="output-modes">Output modes</option>
+            <option value="animation">Animation</option>
+            <option value="display">Display and scaling</option>
+            <option value="sauce">SAUCE metadata</option>
+            <option value="formats">Formats</option>
+            <option value="options">Options</option>
+          </select>
+        </label>
+        <strong>Documentation</strong>
+        <nav aria-label="Documentation sections">
+          <a href="#install">Install</a>
+          <a href="#usage">Usage</a>
+          <a href="#output-modes">Output modes</a>
+          <a href="#animation">Animation</a>
+          <a href="#display">Display and scaling</a>
+          <a href="#sauce">SAUCE metadata</a>
+          <a href="#formats">Formats</a>
+          <a href="#options">Options</a>
+        </nav>
+      </aside>
+
+      <main>
+        <p class="eyebrow">User guide</p>
+        <h1>Documentation</h1>
+        <p class="lede">Install bbcat, view classic BBS artwork in your terminal, and export supported formats to PNG, APNG, or GIF.</p>
+
+        <section id="install">
+          <h2>Install</h2>
+          <p>Install bbcat from crates.io with Cargo:</p>
+          <pre><code><span class="prompt">$</span> cargo install bbcat</code></pre>
+          <p>To build a checkout from source instead:</p>
+          <pre><code><span class="prompt">$</span> cargo build --release</code></pre>
+          <p class="muted">bbcat has no runtime dependencies and requires only a Rust toolchain capable of compiling its current Rust edition.</p>
+        </section>
+
+        <section id="usage">
+          <h2>Usage</h2>
+          <pre><code>bbcat [OPTIONS] [FILE]...</code></pre>
+          <p>Pass one or more files, use <code>-</code> for standard input, or omit the filename to read standard input. Use <code>--</code> before a filename that begins with <code>-</code>.</p>
+          <pre><code><span class="prompt">$</span> bbcat art.ans FILE_ID.DIZ
+<span class="prompt">$</span> bbcat &lt; art.ans
+<span class="prompt">$</span> bbcat --kitty scene.xb
+<span class="prompt">$</span> bbcat --output preview.png art.adf
+<span class="prompt">$</span> bbcat --output - art.ans &gt; preview.png
+<span class="prompt">$</span> bbcat --apng animation.png animation.ans
+<span class="prompt">$</span> bbcat --gif animation.gif animation.ans
+<span class="prompt">$</span> bbcat --2x --kitty art.ans
+<span class="prompt">$</span> bbcat --sauce art.ans
+<span class="prompt">$</span> bbcat --baud 4x animation.ans
+<span class="prompt">$</span> bbcat --asciimation starwars.txt</code></pre>
+          <p>Looking for files to try? Browse and download BBS art packs at <a href="https://16colo.rs/">16colo.rs</a>.</p>
+        </section>
+
+        <section id="output-modes">
+          <h2>Output modes</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Mode</th><th>Option</th><th>Behavior</th></tr></thead>
+              <tbody>
+                <tr><td>UTF-8</td><td>default</td><td>Converts CP437 characters to Unicode and emits 24-bit ANSI colors.</td></tr>
+                <tr><td>Kitty</td><td><code>--kitty</code></td><td>Renders bitmap glyphs through Kitty graphics, cropping at the terminal's right edge.</td></tr>
+                <tr><td>PNG</td><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Writes one indexed-color PNG; use <code>-</code> to write it to standard output.</td></tr>
+                <tr><td>APNG</td><td><code>--apng FILE</code></td><td>Writes a looping indexed-color animated PNG from an ANSI or DDW animation.</td></tr>
+                <tr><td>GIF</td><td><code>--gif FILE</code></td><td>Writes a looping 16-color animated GIF from an ANSI or DDW animation.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Terminal output</h3>
+          <p>UTF-8 output is intended for character art using the standard CP437 glyph set. Use Kitty or PNG output for RIPscrip, XBin 512-character fonts, or artwork whose embedded bitmap font must be reproduced exactly.</p>
+          <p>Kitty mode requires terminal stdout and a terminal that answers bbcat's Kitty graphics protocol probe. <a href="https://sw.kovidgoyal.net/kitty/">Kitty</a> and <a href="https://ghostty.org/">Ghostty</a> are supported on Linux and macOS, along with <a href="https://iterm2.com/">iTerm2</a> on macOS. Long images are emitted in strips so they remain available in terminal scrollback.</p>
+
+          <h3>Image output</h3>
+          <p>PNG, APNG, and GIF modes require exactly one input file. Use <code>-</code> as the output path to write the image to standard output. Choose only one image output mode; none can be combined with <code>--kitty</code>, <code>--slow</code>, <code>--delay</code>, or <code>--sauce</code>. Static PNG output cannot use <code>--baud</code>; APNG and GIF use it for frame timing.</p>
+        </section>
+
+        <section id="animation">
+          <h2>Animation</h2>
+          <p>bbcat recognizes ansimation from repeated ANSI screen rewrites and DarkDraw DDW animation frames, then plays them automatically when standard output is a terminal. Playback defaults to <code>1X</code>. Use <code>--baud RATE</code> to choose an animation frame rate or set the row-reveal speed for static ANSI and text:</p>
+          <pre><code><span class="prompt">$</span> bbcat --baud 2400 animation.ans
+<span class="prompt">$</span> bbcat --baud 57600 animation.ans
+<span class="prompt">$</span> bbcat --baud 2x animation.ans
+<span class="prompt">$</span> bbcat --baud 4x animation.ans</code></pre>
+          <p><code>2400</code>, <code>9600</code>, <code>14400</code>, <code>28800</code>, <code>38400</code>, <code>57600</code>, <code>115200</code> (<code>1X</code>), <code>2X</code> (230400), and <code>4X</code> (460800) are suggested familiar rates. Run <code>bbcat --baud</code> to print the list. Any positive numeric rate is accepted, as is an <code>Nx</code> multiplier of 115200.</p>
+          <p>Animated playback uses each frame's source byte count to determine how long it remains visible. DDW uses its source-defined per-frame duration at <code>1X</code>, scaled by the selected rate. Static art uses the same smooth row reveal as <code>--slow</code>: <code>1X</code> is 25 milliseconds per row.</p>
+          <p>Terminals with synchronized-output support reveal each redraw atomically. Playback preserves CP437 text and source-defined 16-color, 256-color, and true-color SGR sequences. An animation that explicitly homes to the terminal's top-left clears the canvas before playback; relative animations leave the terminal intact. Both retain their final frame and return the prompt below it.</p>
+          <div class="callout"><p>Redirected UTF-8 output and Kitty or PNG output render the last visible state instead of replaying the animation. <code>--apng</code> and <code>--gif</code> retain every detected frame and loop forever.</p></div>
+          <p>Supplying <code>--baud</code> explicitly replays an animation or uses the static row reveal even when UTF-8 output is redirected. It cannot be combined with Kitty, static PNG, <code>--slow</code>, or <code>--delay</code>.</p>
+
+          <h3>ASCIImation text streams</h3>
+          <p>The plain-text streams published by <a href="https://asciimation.co.nz/">asciimation.co.nz</a> contain no terminal control sequences, so bbcat does not detect them automatically. Play one explicitly:</p>
+          <pre><code><span class="prompt">$</span> bbcat --asciimation starwars.txt</code></pre>
+          <p>The format stores a duration in 100 ms ticks followed by thirteen complete ASCII rows per frame. Playback requires terminal stdout and redraws each frame atomically; it cannot be combined with graphics, output, width, or speed flags.</p>
+        </section>
+
+        <section id="display">
+          <h2>Display and scaling</h2>
+          <h3>Slow mode</h3>
+          <pre><code><span class="prompt">$</span> bbcat --slow art.ans
+<span class="prompt">$</span> bbcat --delay 50 art.ans
+<span class="prompt">$</span> bbcat --kitty --slow art.ans</code></pre>
+          <p><code>--slow</code> reveals one character row at a time with a 25 millisecond delay. <code>--delay MS</code> enables slow mode with a custom delay from 1 through 10,000 milliseconds. Both UTF-8 and Kitty modes flush each row before waiting; Kitty mode automatically uses one image strip per character row.</p>
+          <p>Slow mode is not supported with ANSI animation, image output, or RIPscrip raster graphics. Use <code>--baud</code> for baud-paced ANSI/text output. In Kitty slow mode, <code>--chunk-lines</code> has no effect.</p>
+
+          <h3>2x scaling and fitting</h3>
+          <pre><code><span class="prompt">$</span> bbcat --2x --kitty scene.xb
+<span class="prompt">$</span> bbcat --kitty --fit wide.ans
+<span class="prompt">$</span> bbcat --2x --output large.png drawing.rip
+<span class="prompt">$</span> bbcat --2x --apng large.png animation.ans</code></pre>
+          <p><code>--2x</code> doubles graphical output dimensions. Kitty mode crops the doubled bitmap at terminal width unless <code>--fit</code> is present; image output writes an image with twice the width and height. Scaling works with every supported input format and can be combined with Kitty slow mode.</p>
+          <p>Scaling is unavailable in UTF-8 mode because repeating text characters would change strings and distort line art. Use <code>--kitty</code>, <code>--output FILE</code>, <code>--apng FILE</code>, or <code>--gif FILE</code> with <code>--2x</code>.</p>
+          <p>When UTF-8 output goes directly to a terminal, rows wider than the terminal are cropped to its current column count. Redirected output preserves the full artwork width. Kitty crops at terminal width by default; <code>--fit</code> scales the complete image down when at least one terminal row remains. Image output always retains its full dimensions.</p>
+        </section>
+
+        <section id="sauce">
+          <h2>SAUCE metadata</h2>
+          <p>Use <code>--sauce</code> to show an artwork's available SAUCE title, author, group, and creation date as a compact gallery-style caption below the rendered art. Files without descriptive SAUCE metadata render without a caption. The option works with UTF-8 and Kitty output, including multiple input files, but cannot be combined with image output.</p>
+          <pre><code><span class="prompt">$</span> bbcat --sauce art.ans</code></pre>
+        </section>
+
+        <section id="formats">
+          <h2>Supported formats</h2>
+          <ul>
+            <li><strong>ANSI and plain CP437 text</strong>, including <code>.ANS</code>, <code>.DIZ</code>, <code>.ASC</code>, <code>.NFO</code>, <code>.MEM</code>, and <code>.TXT</code>. Cursor movement, erasing, standard and bright colors, inverse video, blink/iCE colors, wrapping, SAUCE dimensions, and baud-paced ansimation are handled. Ansimation also preserves 256-color and true-color SGR sequences.</li>
+            <li><strong>DarkDraw (<code>.DDW</code>)</strong> UTF-8 JSON Lines text art and animation. Objects are painted in source order, group references are expanded recursively, and each frame uses its declared duration. Dimensions come from metadata when present or are inferred from positioned text.</li>
+            <li><strong>XBin (<code>.XB</code>)</strong> with embedded palettes, 8- or 16-color backgrounds, embedded fonts up to 32 pixels high, 256- and 512-character modes, and XBin RLE.</li>
+            <li><strong>ArtWorx Data Format (<code>.ADF</code>)</strong> version 1 with its embedded palette and 8×16 font. ADF is fixed at 80 columns.</li>
+            <li><strong>RIPscrip (<code>.RIP</code>)</strong> level-one vector graphics, including bitmap and proportional BGI stroke fonts. RIPscrip is rendered to a 640×350 canvas and requires Kitty or PNG output.</li>
+          </ul>
+          <p>SAUCE metadata supplies content length, canvas dimensions, iCE color mode, 8- or 9-pixel VGA letter spacing, and named IBM VGA50, Amiga MicroKnight, Amiga Topaz 2+, and Empathy bitmap fonts when present. Kitty and image output reproduce exact glyph shapes; UTF-8 output remains a terminal-font approximation.</p>
+          <p>Common raster images such as PNG, GIF, JPEG, WebP, TIFF, ICO, BMP, and QOI are rejected by content with an explanatory error. Malformed, truncated, oversized, or unsupported BBS inputs also produce a non-zero exit status and a filename-scoped error. With multiple inputs, bbcat reports a rejected file and continues with the rest.</p>
+        </section>
+
+        <section id="options">
+          <h2>Options reference</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Option</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td><code>-w COLS</code><br><code>--width COLS</code></td><td>Override text width. ANSI/text accepts declared widths through 10,000 columns; untagged plain text is inferred through 1,000. DDW and XBin must match their declared width; untagged DDW may be widened but not narrowed. ADF must be 80 and RIPscrip must be 640.</td></tr>
+                <tr><td><code>--chunk-lines ROWS</code></td><td>Set Kitty image-strip height from 1 through 256 character rows. The default is <code>$LINES - 1</code>, clamped to 1 through 64, or 24 when <code>$LINES</code> is unavailable.</td></tr>
+                <tr><td><code>--kitty</code></td><td>Use Kitty graphics instead of colored UTF-8.</td></tr>
+                <tr><td><code>--fit</code></td><td>Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row.</td></tr>
+                <tr><td><code>--slow</code></td><td>Reveal one character row at a time using a 25 ms delay.</td></tr>
+                <tr><td><code>--delay MS</code></td><td>Enable slow mode with a delay from 1 through 10,000 ms per row.</td></tr>
+                <tr><td><code>--baud RATE</code></td><td>Control ANSI source-byte timing, DDW native frame timing, static ANSI/text row reveal, or APNG/GIF timing. <code>1X</code> is 25 ms per row. Run <code>bbcat --baud</code> alone for suggested values.</td></tr>
+                <tr><td><code>--2x</code></td><td>Double Kitty or image output width and height. Requires <code>--kitty</code>, <code>--output</code>, <code>--apng</code>, or <code>--gif</code>.</td></tr>
+                <tr><td><code>--sauce</code></td><td>Show available SAUCE title, author, group, and creation date below the artwork.</td></tr>
+                <tr><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Write an indexed-color PNG. Use <code>-</code> for standard output; requires exactly one input.</td></tr>
+                <tr><td><code>--apng FILE</code></td><td>Write a looping indexed-color animated PNG from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
+                <tr><td><code>--gif FILE</code></td><td>Write a looping 16-color animated GIF from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
+                <tr><td><code>--asciimation</code></td><td>Play one explicit asciimation.co.nz-style stream containing a duration plus thirteen ASCII rows per frame. Requires terminal stdout and cannot be combined with rendering or output options.</td></tr>
+                <tr><td><code>-h</code>, <code>--help</code></td><td>Print command help.</td></tr>
+                <tr><td><code>-V</code>, <code>--version</code></td><td>Print the bbcat version.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <footer>
+      <span>bbcat · documentation</span>
+      <span><a href="https://github.com/EriksRemess/bbcat/blob/main/README.md">README on GitHub</a></span>
+    </footer>
+  </div>
+</body>
+</html>

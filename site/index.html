@@ -368,7 +368,7 @@
 
     @media (max-width: 520px) {
       header { min-height: 62px; }
-      nav a:first-child { display: none; }
+      nav .nav-optional { display: none; }
       pre { min-height: 270px; }
       .formats {
         display: grid;
@@ -405,7 +405,8 @@
         <span class="version"><span>v<!-- BBCAT_VERSION -->0.1.14</span></span>
       </div>
       <nav aria-label="Primary navigation">
-        <a href="https://crates.io/crates/bbcat">crates.io</a>
+        <a href="/docs/">docs</a>
+        <a class="nav-optional" href="https://crates.io/crates/bbcat">crates.io</a>
         <a href="https://github.com/EriksRemess/bbcat">source</a>
       </nav>
     </header>
@@ -421,7 +422,8 @@
           </div>
 
           <div class="actions">
-            <a class="button primary" href="https://github.com/EriksRemess/bbcat"><span>view source</span></a>
+            <a class="button primary" href="/docs/"><span>read the docs</span></a>
+            <a class="button" href="https://github.com/EriksRemess/bbcat"><span>view source</span></a>
             <a class="button" href="https://16colo.rs/"><span>find artwork</span></a>
           </div>
         </div>
