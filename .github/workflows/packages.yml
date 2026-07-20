@@ -137,7 +137,7 @@ jobs:
               --title "tip" \
               --notes "$notes" \
               --prerelease \
-              --latest=false
+              --latest
             gh release upload tip dist/*.deb --clobber
           else
             gh release create tip dist/*.deb \
@@ -145,5 +145,5 @@ jobs:
               --title "tip" \
               --notes "$notes" \
               --prerelease \
-              --latest=false
+              --latest
           fi
