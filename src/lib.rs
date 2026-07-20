@@ -360,19 +360,14 @@ fn render_inner(
         });
     }
     // ANSI has no mandatory header. Prefer an explicit width, then SAUCE, then
-    // the longest plain-text line; escape-containing files fall back to 80.
+    // the longest display line when the escape sequences do not move the
+    // cursor horizontally. Cursor-positioned artwork falls back to 80 columns.
     let declared_width = width_override.or_else(|| {
         sauce
             .as_ref()
             .and_then(|s| (s.width > 0).then_some(s.width))
     });
-    let width = declared_width
-        .or_else(|| {
-            (!content.contains(&0x1b))
-                .then(|| plain_text_width(content))
-                .flatten()
-        })
-        .unwrap_or(80);
+    let width = declared_width.or_else(|| text_width(content)).unwrap_or(80);
 
     let maximum_width = if declared_width.is_some() {
         MAX_ANSI_WIDTH
@@ -466,11 +461,34 @@ fn strip_dos_eof(data: &[u8]) -> &[u8] {
     }
 }
 
-fn plain_text_width(data: &[u8]) -> Option<usize> {
+fn text_width(data: &[u8]) -> Option<usize> {
     let (mut column, mut widest) = (0_usize, 0_usize);
-    for &byte in data {
-        match byte {
-            b'\r' => column = 0,
+    let mut index = 0;
+    while index < data.len() {
+        match data[index] {
+            0x1b => {
+                if data.get(index + 1) != Some(&b'[') {
+                    return None;
+                }
+                let relative_end = data[index + 2..]
+                    .iter()
+                    .position(|byte| (0x40..=0x7e).contains(byte))?;
+                let end = index + 2 + relative_end;
+                let parameters = &data[index + 2..end];
+                match data[end] {
+                    b'm' | b'J' => {}
+                    b'H' | b'f' if is_home_position(parameters) => {
+                        widest = widest.max(column);
+                        column = 0;
+                    }
+                    _ => return None,
+                }
+                index = end;
+            }
+            b'\r' => {
+                widest = widest.max(column);
+                column = 0;
+            }
             b'\n' => {
                 widest = widest.max(column);
                 column = 0;
@@ -480,8 +498,20 @@ fn plain_text_width(data: &[u8]) -> Option<usize> {
             _ => column += 1,
         }
         widest = widest.max(column);
+        index += 1;
     }
     (widest > 0).then_some(widest)
+}
+
+fn is_home_position(parameters: &[u8]) -> bool {
+    let mut count = 0;
+    for part in parameters.split(|&byte| byte == b';') {
+        count += 1;
+        if count > 2 || !(part.is_empty() || part == b"0" || part == b"1") {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -500,6 +530,24 @@ mod tests {
     fn plain_diz_uses_its_content_width() {
         let doc = render(b"FILE_ID.DIZ\r\nhello", None).unwrap();
         assert_eq!(doc.screen.width, 11);
+    }
+
+    #[test]
+    fn sgr_colored_ansi_uses_its_content_width() {
+        let doc = render(b"\x1b[2J\x1b[0H\x1b[38;5;196m\x1b[48;5;16mABC\n", None).unwrap();
+        assert_eq!(doc.screen.width, 3);
+    }
+
+    #[test]
+    fn home_delimited_ansi_frames_do_not_add_their_widths() {
+        let doc = render(b"ABC\x1b[HXYZ", None).unwrap();
+        assert_eq!(doc.screen.width, 3);
+    }
+
+    #[test]
+    fn cursor_positioned_ansi_falls_back_to_eighty_columns() {
+        let doc = render(b"\x1b[10CX", None).unwrap();
+        assert_eq!(doc.screen.width, 80);
     }
 
     #[test]

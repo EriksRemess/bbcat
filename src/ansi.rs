@@ -277,6 +277,10 @@ pub(crate) fn parse_with_animation(
             }
             b'\n' => {
                 parser.y = parser.y.saturating_add(1);
+                // Terminal stdout normally has ONLCR enabled, so a newline in
+                // the source reaches the display as CRLF during direct CLI
+                // playback. Match that visible behavior in Screen rendering.
+                parser.x = 0;
                 parser.pending_wrap = false;
                 index += 1;
             }
@@ -670,6 +674,13 @@ mod tests {
         let screen = parse(b"1234\r\nX", 4, None, false).unwrap();
         assert_eq!(screen.height, 2);
         assert_eq!(screen.cells[4].character, u16::from(b'X'));
+    }
+
+    #[test]
+    fn line_feed_starts_the_next_display_row_at_column_zero() {
+        let screen = parse(b"12\nX", 2, None, false).unwrap();
+        assert_eq!(screen.height, 2);
+        assert_eq!(screen.cells[2].character, u16::from(b'X'));
     }
 
     #[test]
