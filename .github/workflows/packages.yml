@@ -3,13 +3,14 @@ name: Build Debian packages
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: tip-packages
+  group: packages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -38,10 +39,20 @@ jobs:
             exit 1
           fi
 
-          commit_epoch="$(git show -s --format=%ct HEAD)"
-          commit_date="$(date -u -d "@${commit_epoch}" +%Y%m%d%H%M%S)"
-          commit_short="$(git rev-parse --short=8 HEAD)"
-          package_version="${base_version}+git${commit_date}.${commit_short}"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            if [[ "$GITHUB_REF_NAME" != "v${base_version}" ]]; then
+              echo "Tag ${GITHUB_REF_NAME} does not match Cargo version ${base_version}" >&2
+              exit 1
+            fi
+            package_version="$base_version"
+            package_change="Release ${base_version}."
+          else
+            commit_epoch="$(git show -s --format=%ct HEAD)"
+            commit_date="$(date -u -d "@${commit_epoch}" +%Y%m%d%H%M%S)"
+            commit_short="$(git rev-parse --short=8 HEAD)"
+            package_version="${base_version}+git${commit_date}.${commit_short}"
+            package_change="Development snapshot of commit ${GITHUB_SHA}."
+          fi
           mkdir dist
 
           cargo build --release --locked
@@ -64,7 +75,7 @@ jobs:
             {
               echo "bbcat (${package_version}) unstable; urgency=medium"
               echo
-              echo "  * Development snapshot of commit ${GITHUB_SHA}."
+              echo "  * ${package_change}"
               echo
               echo " -- Ēriks Remess <eriks@remess.lv>  $(date --rfc-email)"
             } > "${package_root}/usr/share/doc/bbcat/changelog"
@@ -104,12 +115,12 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
-          name: bbcat-tip-${{ matrix.architecture }}
+          name: bbcat-deb-${{ matrix.architecture }}
           path: dist/*.deb
           if-no-files-found: error
 
   release:
-    name: Update tip release
+    name: Publish Debian packages
     needs: deb
     runs-on: ubuntu-22.04
     permissions:
@@ -118,11 +129,31 @@ jobs:
       - name: Download Debian packages
         uses: actions/download-artifact@v8
         with:
-          pattern: bbcat-tip-*
+          pattern: bbcat-deb-*
           path: dist
           merge-multiple: true
 
+      - name: Publish versioned release packages
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/*.deb \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/*.deb \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
+
       - name: Update tip prerelease
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash

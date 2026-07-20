@@ -21,6 +21,9 @@ cargo install --path .
 
 ### Debian development packages
 
+Versioned Debian packages for `amd64` and `arm64` are attached to each
+[GitHub release](https://github.com/EriksRemess/bbcat/releases).
+
 Every commit on `main` is also published to the moving
 [`tip` prerelease](https://github.com/EriksRemess/bbcat/releases/tag/tip) as a
 Debian package for `amd64` PCs and `arm64` systems, including Raspberry Pi 4
