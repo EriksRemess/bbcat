@@ -95,6 +95,12 @@ signature; decode it explicitly with `decode_asciimation`.
 
 See the complete [library API documentation](https://docs.rs/bbcat/) on docs.rs.
 
+For a GUI application example, see
+[`bbcat-gtk`](https://github.com/EriksRemess/bbcat-gtk), a small GTK4 demo that
+uses the library to open and render static and animated ANSI/BBS artwork. It
+also demonstrates file handling, responsive image display, and presenting
+SAUCE metadata in a desktop application.
+
 ## Output modes
 
 | Mode | Option | Behavior |
