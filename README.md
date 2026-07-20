@@ -19,6 +19,19 @@ To install from a source checkout, run:
 cargo install --path .
 ```
 
+### Debian development packages
+
+Every commit on `main` is also published to the moving
+[`tip` prerelease](https://github.com/EriksRemess/bbcat/releases/tag/tip) as a
+Debian package for `amd64` PCs and `arm64` systems, including Raspberry Pi 4
+and 5 running a 64-bit OS. These packages contain development snapshots and
+may be unstable.
+
+```console
+curl -LO "https://github.com/EriksRemess/bbcat/releases/download/tip/bbcat-tip-$(dpkg --print-architecture).deb"
+sudo apt install "./bbcat-tip-$(dpkg --print-architecture).deb"
+```
+
 ## Usage
 
 ```console
