@@ -1,8 +1,9 @@
 # bbcat
 
 Dependency-free Rust library and terminal viewer for CP437 ANSI and ansimation,
-DarkDraw DDW, DIZ, ADF, RIPscrip, and XBin art. It writes colored UTF-8 by
-default, with optional Kitty graphics plus PNG, APNG, and GIF output.
+ASCIImation text streams, DarkDraw DDW, DIZ, ADF, RIPscrip, and XBin art. It
+writes colored UTF-8 by default, with optional Kitty graphics plus PNG, APNG,
+and GIF output.
 
 Browse and download BBS art packs at [16colo.rs](https://16colo.rs/).
 
@@ -159,8 +160,9 @@ bbcat --asciimation ~/Downloads/starwars.txt
 ```
 
 The format stores a duration in 100 ms ticks followed by thirteen complete ASCII
-rows per frame. Playback requires terminal stdout and redraws each frame
-atomically; it cannot be combined with graphics, output, width, or speed flags.
+rows per frame. Playback requires terminal stdout and exactly one input, and
+redraws each frame atomically. It cannot be combined with Kitty/fit, image
+output, width, scaling, speed, or SAUCE flags.
 
 ## Slow mode
 
@@ -175,9 +177,9 @@ bbcat --kitty --slow art.ans
 milliseconds. Both UTF-8 and Kitty modes flush each row before waiting; Kitty
 mode automatically uses one image strip per character row.
 
-Slow mode is not supported with ANSI animation, image output, or RIPscrip
-raster graphics. Use `--baud` for baud-paced ANSI/text output. In Kitty slow
-mode, `--chunk-lines` has no effect.
+Slow mode is not supported with ANSI or DDW animation, image output, or
+RIPscrip raster graphics. Use `--baud` for baud-paced ANSI/text output. In
+Kitty slow mode, `--chunk-lines` has no effect.
 
 ## SAUCE metadata
 
@@ -199,9 +201,9 @@ bbcat --2x --kitty --slow art.ans
 
 `--2x` doubles both graphical output dimensions. Kitty mode crops the doubled
 bitmap at the terminal width unless `--fit` is present; image output writes an
-image with twice the width and height. It works with every supported input
-format and can be combined with Kitty slow mode. Slow-mode delays remain per
-original artwork row.
+image with twice the width and height. It works with ANSI/text, DDW, XBin, ADF,
+and RIPscrip, and can be combined with Kitty slow mode. ASCIImation playback
+does not support scaling. Slow-mode delays remain per original artwork row.
 
 Scaling is intentionally unavailable in UTF-8 mode: repeating text characters
 would change strings and distort line art. Use `--kitty`, `--output FILE`,
@@ -220,6 +222,9 @@ always retains its full dimensions.
   inverse video, blink/iCE colors, wrapping, SAUCE dimensions, and baud-paced
   ansimation are handled. Ansimation playback also preserves 256-color and
   true-color SGR sequences.
+- ASCIImation text streams containing a duration in 100 ms ticks followed by
+  thirteen ASCII rows per frame. Because the format has no signature, use
+  `--asciimation` in the CLI or `decode_asciimation` from Rust.
 - DarkDraw (`.DDW`) UTF-8 JSON Lines text art and animation. Base and
   frame-specific objects are painted in source order; reusable group references
   are expanded recursively at their positioned frame. Each DDW frame uses its
@@ -265,7 +270,7 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 | `-o FILE`, `--output FILE` | Write an indexed-color PNG. Use `-` for standard output; requires exactly one input. |
 | `--apng FILE` | Write a looping indexed-color animated PNG from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
 | `--gif FILE` | Write a looping 16-color animated GIF from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
-| `--asciimation` | Play one explicit asciimation.co.nz-style text stream: a duration plus thirteen ASCII rows per frame. Requires terminal stdout and cannot be combined with rendering or output options. |
+| `--asciimation` | Play one explicit asciimation.co.nz-style text stream: a duration plus thirteen ASCII rows per frame. Requires exactly one input and terminal stdout; cannot be combined with Kitty/fit, image output, width, scaling, speed, or SAUCE options. |
 | `-h`, `--help` | Print command help. |
 | `-V`, `--version` | Print the bbcat version. |
 

@@ -72,17 +72,27 @@
     .brand::before { content: "❯"; }
 
     .version {
-      padding: 0.2rem 0.55rem;
+      display: flex;
+      align-items: center;
+      width: fit-content;
+      padding: 0.3rem 0.65rem;
       border: 1px solid #32443a;
       border-radius: 999px;
       color: var(--green);
       background: rgba(102, 226, 138, 0.06);
-      font-size: 0.72rem;
-      line-height: 1.4;
+      font-size: 0.75rem;
+    }
+
+    .brand::before,
+    .brand > span,
+    .version > span {
+      line-height: 1;
+      text-box-edge: cap alphabetic;
+      text-box-trim: trim-both;
     }
 
     header nav { display: flex; gap: 1.5rem; }
-    header nav a { color: var(--muted); font-size: 0.86rem; text-decoration: none; }
+    header nav a { color: var(--muted); font-size: 0.88rem; text-decoration: none; }
 
     .docs-layout {
       display: grid;
@@ -238,7 +248,7 @@
 
     @media (max-width: 520px) {
       header { min-height: 62px; }
-      header nav a:not(:first-child) { display: none; }
+      header nav .nav-optional { display: none; }
       .shell { width: min(100% - 1.25rem, 1080px); }
       .docs-layout { gap: 1rem; }
       th, td { padding: 0.65rem; }
@@ -254,12 +264,13 @@
   <div class="shell">
     <header>
       <div class="header-brand">
-        <a class="brand" href="/">bbcat</a>
-        <span class="version">v<!-- BBCAT_VERSION -->0.4.0</span>
+        <a class="brand" href="/"><span>bbcat</span></a>
+        <span class="version"><span>v<!-- BBCAT_VERSION -->0.5.0</span></span>
       </div>
       <nav aria-label="Primary navigation">
         <a href="/">home</a>
-        <a href="https://crates.io/crates/bbcat">crates.io</a>
+        <a href="https://docs.rs/bbcat/">api</a>
+        <a class="nav-optional" href="https://crates.io/crates/bbcat">crates.io</a>
         <a href="https://github.com/EriksRemess/bbcat">source</a>
       </nav>
     </header>
@@ -397,7 +408,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
           <h3>ASCIImation text streams</h3>
           <p>The plain-text streams published by <a href="https://asciimation.co.nz/">asciimation.co.nz</a> contain no terminal control sequences, so bbcat does not detect them automatically. Play one explicitly:</p>
           <pre><code><span class="prompt">$</span> bbcat --asciimation starwars.txt</code></pre>
-          <p>The format stores a duration in 100 ms ticks followed by thirteen complete ASCII rows per frame. Playback requires terminal stdout and redraws each frame atomically; it cannot be combined with graphics, output, width, or speed flags.</p>
+          <p>The format stores a duration in 100 ms ticks followed by thirteen complete ASCII rows per frame. Playback requires terminal stdout and exactly one input, and redraws each frame atomically. It cannot be combined with Kitty/fit, image output, width, scaling, speed, or SAUCE flags.</p>
         </section>
 
         <section id="display">
@@ -407,14 +418,14 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
 <span class="prompt">$</span> bbcat --delay 50 art.ans
 <span class="prompt">$</span> bbcat --kitty --slow art.ans</code></pre>
           <p><code>--slow</code> reveals one character row at a time with a 25 millisecond delay. <code>--delay MS</code> enables slow mode with a custom delay from 1 through 10,000 milliseconds. Both UTF-8 and Kitty modes flush each row before waiting; Kitty mode automatically uses one image strip per character row.</p>
-          <p>Slow mode is not supported with ANSI animation, image output, or RIPscrip raster graphics. Use <code>--baud</code> for baud-paced ANSI/text output. In Kitty slow mode, <code>--chunk-lines</code> has no effect.</p>
+          <p>Slow mode is not supported with ANSI or DDW animation, image output, or RIPscrip raster graphics. Use <code>--baud</code> for baud-paced ANSI/text output. In Kitty slow mode, <code>--chunk-lines</code> has no effect.</p>
 
           <h3>2x scaling and fitting</h3>
           <pre><code><span class="prompt">$</span> bbcat --2x --kitty scene.xb
 <span class="prompt">$</span> bbcat --kitty --fit wide.ans
 <span class="prompt">$</span> bbcat --2x --output large.png drawing.rip
 <span class="prompt">$</span> bbcat --2x --apng large.png animation.ans</code></pre>
-          <p><code>--2x</code> doubles graphical output dimensions. Kitty mode crops the doubled bitmap at terminal width unless <code>--fit</code> is present; image output writes an image with twice the width and height. Scaling works with every supported input format and can be combined with Kitty slow mode.</p>
+          <p><code>--2x</code> doubles graphical output dimensions. Kitty mode crops the doubled bitmap at terminal width unless <code>--fit</code> is present; image output writes an image with twice the width and height. It works with ANSI/text, DDW, XBin, ADF, and RIPscrip, and can be combined with Kitty slow mode. ASCIImation playback does not support scaling.</p>
           <p>Scaling is unavailable in UTF-8 mode because repeating text characters would change strings and distort line art. Use <code>--kitty</code>, <code>--output FILE</code>, <code>--apng FILE</code>, or <code>--gif FILE</code> with <code>--2x</code>.</p>
           <p>When UTF-8 output goes directly to a terminal, rows wider than the terminal are cropped to its current column count. Redirected output preserves the full artwork width. Kitty crops at terminal width by default; <code>--fit</code> scales the complete image down when at least one terminal row remains. Image output always retains its full dimensions.</p>
         </section>
@@ -429,6 +440,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
           <h2>Supported formats</h2>
           <ul>
             <li><strong>ANSI and plain CP437 text</strong>, including <code>.ANS</code>, <code>.DIZ</code>, <code>.ASC</code>, <code>.NFO</code>, <code>.MEM</code>, and <code>.TXT</code>. Cursor movement, erasing, standard and bright colors, inverse video, blink/iCE colors, wrapping, SAUCE dimensions, and baud-paced ansimation are handled. Ansimation also preserves 256-color and true-color SGR sequences.</li>
+            <li><strong>ASCIImation text streams</strong> containing a duration in 100 ms ticks followed by thirteen ASCII rows per frame. Because the format has no signature, use <code>--asciimation</code> in the CLI or <code>decode_asciimation</code> from Rust.</li>
             <li><strong>DarkDraw (<code>.DDW</code>)</strong> UTF-8 JSON Lines text art and animation. Objects are painted in source order, group references are expanded recursively, and each frame uses its declared duration. Dimensions come from metadata when present or are inferred from positioned text.</li>
             <li><strong>XBin (<code>.XB</code>)</strong> with embedded palettes, 8- or 16-color backgrounds, embedded fonts up to 32 pixels high, 256- and 512-character modes, and XBin RLE.</li>
             <li><strong>ArtWorx Data Format (<code>.ADF</code>)</strong> version 1 with its embedded palette and 8×16 font. ADF is fixed at 80 columns.</li>
@@ -456,7 +468,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
                 <tr><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Write an indexed-color PNG. Use <code>-</code> for standard output; requires exactly one input.</td></tr>
                 <tr><td><code>--apng FILE</code></td><td>Write a looping indexed-color animated PNG from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
                 <tr><td><code>--gif FILE</code></td><td>Write a looping 16-color animated GIF from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
-                <tr><td><code>--asciimation</code></td><td>Play one explicit asciimation.co.nz-style stream containing a duration plus thirteen ASCII rows per frame. Requires terminal stdout and cannot be combined with rendering or output options.</td></tr>
+                <tr><td><code>--asciimation</code></td><td>Play one explicit asciimation.co.nz-style stream containing a duration plus thirteen ASCII rows per frame. Requires exactly one input and terminal stdout; cannot be combined with Kitty/fit, image output, width, scaling, speed, or SAUCE options.</td></tr>
                 <tr><td><code>-h</code>, <code>--help</code></td><td>Print command help.</td></tr>
                 <tr><td><code>-V</code>, <code>--version</code></td><td>Print the bbcat version.</td></tr>
               </tbody>

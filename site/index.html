@@ -372,7 +372,7 @@
       pre { min-height: 270px; }
       .formats {
         display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: var(--space-2xs);
         width: 100%;
       }
@@ -388,10 +388,6 @@
       footer { flex-direction: column; }
     }
 
-    @media (max-width: 340px) {
-      .formats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    }
-
     @media (prefers-reduced-motion: reduce) {
       * { scroll-behavior: auto !important; }
     }
@@ -402,7 +398,7 @@
     <header>
       <div class="header-brand">
         <a class="brand" href="/"><span>bbcat</span></a>
-        <span class="version"><span>v<!-- BBCAT_VERSION -->0.1.14</span></span>
+        <span class="version"><span>v<!-- BBCAT_VERSION -->0.5.0</span></span>
       </div>
       <nav aria-label="Primary navigation">
         <a href="/docs/">docs</a>
@@ -468,7 +464,7 @@
 
       <div class="formats" aria-label="Supported formats">
         <strong>Supported formats</strong>
-        <span><span>.ANS</span></span><span><span>.DIZ</span></span><span><span>.ASC</span></span><span><span>.ADF</span></span><span><span>.RIP</span></span><span><span>.XB</span></span>
+        <span><span>.ANS</span></span><span><span>.DIZ</span></span><span><span>.ASC</span></span><span><span>.NFO</span></span><span><span>.MEM</span></span><span><span>.TXT</span></span><span><span>.DDW</span></span><span><span>.ADF</span></span><span><span>.RIP</span></span><span><span>.XB</span></span>
       </div>
     </main>
 
