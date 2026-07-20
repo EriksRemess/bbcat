@@ -80,6 +80,8 @@ can be encoded directly to PNG, APNG, or GIF, while the lower-level text and
 Kitty writers remain available for streaming output. ASCIImation has no format
 signature; decode it explicitly with `decode_asciimation`.
 
+See the complete [library API documentation](https://docs.rs/bbcat/) on docs.rs.
+
 ## Output modes
 
 | Mode | Option | Behavior |

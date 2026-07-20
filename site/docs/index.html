@@ -355,6 +355,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
 }</code></pre>
           <p>Use <code>decode</code> for content-based detection with inferred dimensions, or <code>decode_with_options</code> to supply a filename hint and width override. A decoded <code>Document</code> reports its <code>Format</code>, final <code>Screen</code>, optional <code>Sauce</code>, and optional <code>Animation</code>.</p>
           <p>Character screens expose cells, glyph and pixel dimensions, palette and font data; RIPscrip screens expose their indexed raster. Documents can be encoded directly to PNG, APNG, or GIF, while lower-level text and Kitty writers remain available for streaming output. ASCIImation has no format signature; decode it explicitly with <code>decode_asciimation</code>.</p>
+          <p><a href="https://docs.rs/bbcat/">Browse the complete library API documentation on docs.rs.</a></p>
         </section>
 
         <section id="output-modes">
