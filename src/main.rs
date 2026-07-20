@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+mod archive;
 mod terminal;
 
 const DEFAULT_DELAY_MS: u64 = 25;
@@ -117,8 +118,9 @@ fn run() -> Result<ExitCode, String> {
     }
     let mut stdout = io::stdout().lock();
     if options.asciimation {
-        let file = &options.files[0];
-        let data = read(file)?;
+        let input = read_input(&options.files[0])?;
+        let file = input.label;
+        let data = input.data;
         let animation =
             bbcat::decode_asciimation(&data).map_err(|error| format!("{file}: {error}"))?;
         if let Some(columns) = terminal_columns
@@ -134,21 +136,24 @@ fn run() -> Result<ExitCode, String> {
         return Ok(ExitCode::SUCCESS);
     }
     let mut input_error = false;
-    for file in &options.files {
-        let data = match read(file) {
-            Ok(data) => data,
+    for path in &options.files {
+        let input = match read_input(path) {
+            Ok(input) => input,
             Err(error) => {
                 eprintln!("bbcat: {error}");
                 input_error = true;
                 continue;
             }
         };
+        let file = input.label;
+        let name = input.name;
+        let data = input.data;
         // All input formats become the same Screen here. The remaining branches
         // differ only in how that screen is serialized for the requested target.
         let document = match bbcat::decode_with_options(
             &data,
             bbcat::DecodeOptions {
-                file_name: Some(Path::new(file)),
+                file_name: Some(Path::new(&name)),
                 width: options.width,
             },
         ) {
@@ -306,16 +311,39 @@ fn run() -> Result<ExitCode, String> {
     })
 }
 
-fn read(path: &str) -> Result<Vec<u8>, String> {
-    if path == "-" {
+struct Input {
+    label: String,
+    name: String,
+    data: Vec<u8>,
+}
+
+fn read_input(path: &str) -> Result<Input, String> {
+    let data = if path == "-" {
         let mut data = Vec::new();
         io::stdin()
             .read_to_end(&mut data)
             .map_err(|error| format!("stdin: {error}"))?;
-        Ok(data)
+        data
     } else {
-        fs::read(path).map_err(|error| format!("{path}: {error}"))
+        fs::read(path).map_err(|error| format!("{path}: {error}"))?
+    };
+    let zip_name = Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"));
+    if archive::is_zip(&data) || zip_name {
+        let entry = archive::extract_preview(&data).map_err(|error| format!("{path}: {error}"))?;
+        return Ok(Input {
+            label: format!("{path}:{}", entry.name),
+            name: entry.name,
+            data: entry.data,
+        });
     }
+    Ok(Input {
+        label: path.to_owned(),
+        name: path.to_owned(),
+        data,
+    })
 }
 
 fn write_png<W: io::Write>(output: &mut W, path: &Path, png: &[u8]) -> Result<(), String> {
@@ -529,7 +557,7 @@ Render character art, play terminal animation, or write Kitty, PNG, APNG, and GI
 Usage: bbcat [OPTIONS] [FILE]...
 
 Arguments:
-  [FILE]...                 .ANS/.DDW/.DIZ/.ADF/.RIP/.XB files; use - or omit for stdin
+  [FILE]...                 Art files or .ZIP packs; use - or omit for stdin
 
 Options:
   -w, --width COLS          Override text width; must match fixed binary/vector widths

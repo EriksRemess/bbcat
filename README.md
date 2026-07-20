@@ -3,7 +3,7 @@
 Dependency-free Rust library and terminal viewer for CP437 ANSI and ansimation,
 ASCIImation text streams, DarkDraw DDW, DIZ, ADF, RIPscrip, and XBin art. It
 writes colored UTF-8 by default, with optional Kitty graphics plus PNG, APNG,
-and GIF output.
+and GIF output. The CLI can also preview artwork embedded in ZIP packs.
 
 Browse and download BBS art packs at [16colo.rs](https://16colo.rs/).
 
@@ -30,6 +30,7 @@ read standard input. Use `--` before a filename that begins with `-`.
 
 ```console
 bbcat art.ans FILE_ID.DIZ
+bbcat mist0526.zip
 bbcat < art.ans
 bbcat --kitty scene.xb
 bbcat --output preview.png art.adf
@@ -41,6 +42,13 @@ bbcat --sauce art.ans
 bbcat --baud 4x animation.ans
 bbcat --asciimation ~/Downloads/starwars.txt
 ```
+
+ZIP input is detected by content or a `.zip` extension. bbcat previews the
+archive description when one is present, preferring `FILE_ID.ANS` and then
+`FILE_ID.DIZ`; otherwise it uses the first supported ANSI/BBS art entry. Stored
+and ordinary Deflate entries are read directly without an external unzip tool
+or an added library dependency. Encrypted, multi-disk, and ZIP64 archives are
+not supported.
 
 ## Library use
 
@@ -243,6 +251,8 @@ always retains its full dimensions.
 - RIPscrip (`.RIP`) level-one vector graphics, including its bitmap and
   proportional BGI stroke fonts. RIPscrip is rendered to a 640x350 canvas and
   requires Kitty or PNG output.
+- ZIP art packs using stored or Deflate compression. The CLI selects the pack's
+  `FILE_ID.ANS`, `FILE_ID.DIZ`, or first supported artwork as a preview.
 
 SAUCE metadata is used for content length, canvas dimensions, iCE color mode,
 8- or 9-pixel VGA letter spacing, and named IBM VGA50, Amiga MicroKnight,
