@@ -40,9 +40,16 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<ExitCode, String> {
-    let Some(options) = parse_args()? else {
+    let Some(mut options) = parse_args()? else {
         return Ok(ExitCode::SUCCESS);
     };
+    if options.files.is_empty() {
+        if io::stdin().is_terminal() {
+            print_help();
+            return Ok(ExitCode::SUCCESS);
+        }
+        options.files.push("-".to_owned());
+    }
     let image_output = options.output.is_some() || options.apng.is_some() || options.gif.is_some();
     if [
         options.output.as_ref(),
@@ -471,9 +478,6 @@ fn parse_args() -> Result<Option<Options>, String> {
             _ => files.push(argument),
         }
     }
-    if files.is_empty() {
-        files.push("-".to_owned());
-    }
     if chunk_lines == 0 || chunk_lines > 256 {
         return Err("--chunk-lines must be between 1 and 256".to_owned());
     }
@@ -557,7 +561,7 @@ Render character art, play terminal animation, or write Kitty, PNG, APNG, and GI
 Usage: bbcat [OPTIONS] [FILE]...
 
 Arguments:
-  [FILE]...                 Art files or .ZIP packs; use - or omit for stdin
+  [FILE]...                 Art files or .ZIP packs; use - for stdin
 
 Options:
   -w, --width COLS          Override text width; must match fixed binary/vector widths

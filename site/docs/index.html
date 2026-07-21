@@ -333,7 +333,7 @@
         <section id="usage">
           <h2>Usage</h2>
           <pre><code>bbcat [OPTIONS] [FILE]...</code></pre>
-          <p>Pass one or more files, use <code>-</code> for standard input, or omit the filename to read standard input. Use <code>--</code> before a filename that begins with <code>-</code>.</p>
+          <p>Pass one or more files or use <code>-</code> for standard input. With no filename, bbcat reads redirected or piped input; when run interactively, it prints its help. Use <code>--</code> before a filename that begins with <code>-</code>.</p>
           <pre><code><span class="prompt">$</span> bbcat art.ans FILE_ID.DIZ
 <span class="prompt">$</span> bbcat &lt; art.ans
 <span class="prompt">$</span> bbcat --kitty scene.xb

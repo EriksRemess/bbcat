@@ -42,8 +42,9 @@ sudo apt install ./bbcat_*_"${architecture}.deb"
 bbcat [OPTIONS] [FILE]...
 ```
 
-Pass one or more files, use `-` for standard input, or omit the filename to
-read standard input. Use `--` before a filename that begins with `-`.
+Pass one or more files or use `-` for standard input. With no filename, bbcat
+reads redirected or piped input; when run interactively, it prints its help.
+Use `--` before a filename that begins with `-`.
 
 ```console
 bbcat art.ans FILE_ID.DIZ
