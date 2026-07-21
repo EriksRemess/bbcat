@@ -113,6 +113,21 @@ signature; decode it explicitly with `decode_asciimation`.
 
 See the complete [library API documentation](https://docs.rs/bbcat/) on docs.rs.
 
+## macOS app
+
+[`bbcat for macOS`](https://github.com/EriksRemess/bbcat-mac) is the native
+AppKit viewer for Apple silicon Macs running macOS 13 or newer. It uses the
+bbcat Rust library through a small C-compatible bridge and adds timed
+animation, SAUCE metadata, crisp 1x and 2x display, native-size scrolling,
+Finder thumbnails, full Quick Look previews, and an optional bundled `bbcat`
+CLI.
+
+Download `bbcat-macos-arm64.zip` from the
+[latest release](https://github.com/EriksRemess/bbcat-mac/releases/latest),
+unzip it, and move `bbcat.app` to `/Applications`. Launch it once to register
+its document types and Finder extensions. The app is self-contained; Rust and
+a separate bbcat installation are not required.
+
 ## Example applications
 
 - [`bbcat-gtk`](https://github.com/EriksRemess/bbcat-gtk) is a small GTK4 demo

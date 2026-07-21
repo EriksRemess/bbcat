@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Documentation for the bbcat Rust library, terminal viewer, and image converter for ANSI and BBS art.">
+  <meta name="description" content="Documentation for the bbcat native macOS app, Rust library, terminal viewer, and image converter for ANSI and BBS art.">
   <link rel="canonical" href="https://bbcat.dev/docs/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <title>Documentation — bbcat</title>
@@ -289,6 +289,7 @@
           <select class="on-this-page" aria-label="Jump to a documentation section" onchange="if (this.value) location.hash = this.value">
             <option value="">Choose…</option>
             <option value="install">Install</option>
+            <option value="macos">macOS app</option>
             <option value="usage">Usage</option>
             <option value="library">Library API</option>
             <option value="example-applications">Example applications</option>
@@ -303,6 +304,7 @@
         <strong>Documentation</strong>
         <nav aria-label="Documentation sections">
           <a href="#install">Install</a>
+          <a href="#macos">macOS app</a>
           <a href="#usage">Usage</a>
           <a href="#library">Library API</a>
           <a href="#example-applications">Example applications</a>
@@ -318,7 +320,7 @@
       <main>
         <p class="eyebrow">User guide</p>
         <h1>Documentation</h1>
-        <p class="lede">Decode classic BBS artwork from Rust, view it in your terminal, and export supported formats to PNG, APNG, or GIF.</p>
+        <p class="lede">View classic BBS artwork in the native macOS app or your terminal, decode it from Rust, and export supported formats to PNG, APNG, or GIF.</p>
 
         <section id="install">
           <h2>Install</h2>
@@ -327,7 +329,15 @@
           <p>Prebuilt Debian packages for <code>amd64</code> and <code>arm64</code> are also attached to each <a href="https://github.com/EriksRemess/bbcat/releases">GitHub release</a>. Development snapshots are published on the moving <a href="https://github.com/EriksRemess/bbcat/releases/tag/tip"><code>tip</code> release</a>.</p>
           <p>To install from a source checkout instead:</p>
           <pre><code><span class="prompt">$</span> cargo install --path .</code></pre>
+
           <p class="muted">bbcat has no runtime dependencies and requires only a Rust toolchain capable of compiling its current Rust edition.</p>
+        </section>
+
+        <section id="macos">
+          <h2>macOS app</h2>
+          <p><a href="https://github.com/EriksRemess/bbcat-mac">bbcat for macOS</a> is a native AppKit viewer powered by the same Rust decoder and renderer. It adds timed ANSI animation, SAUCE metadata, crisp ×1 and ×2 display, native-size scrolling, Finder thumbnails, and full Quick Look previews.</p>
+          <p>Download <code>bbcat-macos-arm64.zip</code> from the <a href="https://github.com/EriksRemess/bbcat-mac/releases/latest">latest bbcat-mac release</a>, unzip it, and move <code>bbcat.app</code> to <code>/Applications</code>. The prebuilt app supports Apple silicon Macs running macOS 13 or newer and includes everything it needs. Launch it once to register its document types and Finder extensions.</p>
+          <div class="callout"><p>The app also includes an optional copy of the <code>bbcat</code> command-line tool, which you can install to or remove from <code>~/.local/bin/bbcat</code> from the app menu.</p></div>
         </section>
 
         <section id="usage">

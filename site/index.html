@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Dependency-free Rust library, terminal viewer, and PNG, APNG, and GIF converter for CP437 ANSI, DDW, DIZ, ADF, RIPscrip, XBin, and ZIP-packed BBS art.">
+  <meta name="description" content="View CP437 ANSI and BBS art in the terminal or the native macOS app, decode it from Rust, and export PNG, APNG, and GIF files.">
   <link rel="canonical" href="https://bbcat.dev/">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <title>bbcat — ANSI and BBS art viewer for terminals</title>
+  <title>bbcat — ANSI and BBS art viewer</title>
   <style>
     :root {
       color-scheme: dark;
@@ -170,7 +170,7 @@
     .actions {
       display: grid;
       grid-area: actions;
-      grid-template-columns: repeat(4, max-content);
+      grid-template-columns: repeat(5, max-content);
       column-gap: clamp(var(--space-lg), 4vw, var(--space-section));
       width: 100%;
     }
@@ -348,6 +348,59 @@
 
     .feature p { margin: 0; color: var(--muted); font-size: 0.86rem; }
 
+    .mac-app {
+      display: grid;
+      grid-template-columns: minmax(0, 0.85fr) minmax(18rem, 1.15fr);
+      gap: clamp(var(--space-lg), 5vw, var(--space-section));
+      align-items: center;
+      margin-top: var(--space-xl);
+      padding: clamp(var(--space-lg), 4vw, var(--space-xl));
+      border: 1px solid #31404a;
+      border-radius: 10px;
+      background:
+        radial-gradient(circle at 0 50%, rgba(99, 217, 230, 0.08), transparent 26rem),
+        var(--panel);
+    }
+
+    .mac-app-label {
+      color: var(--cyan);
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .mac-app h2 {
+      margin: var(--space-sm) 0 0;
+      font-family: system-ui, sans-serif;
+      font-size: clamp(1.7rem, 4vw, 2.5rem);
+      line-height: 1.05;
+      letter-spacing: -0.045em;
+    }
+
+    .mac-app-copy p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .mac-app-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-xs) var(--space-lg);
+      margin-top: var(--space-md);
+    }
+
+    .mac-app-links a {
+      color: var(--text);
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .mac-app-links a::after { color: var(--cyan); content: " →"; }
+    .mac-app-links a:hover, .mac-app-links a:focus-visible { color: var(--cyan); }
+
     .formats {
       display: flex;
       flex-wrap: wrap;
@@ -411,6 +464,7 @@
       .features { grid-template-columns: 1fr; }
       .feature { min-height: auto; }
       .feature h2 { margin-top: 1rem; }
+      .mac-app { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 520px) {
@@ -491,6 +545,7 @@
 
         <div class="actions">
           <a class="button primary" href="/docs/"><span>read the docs</span></a>
+          <a class="button" href="https://github.com/EriksRemess/bbcat-mac/releases/latest"><span>get macOS app</span></a>
           <a class="button" href="https://github.com/EriksRemess/bbcat/releases"><span>download .deb</span></a>
           <a class="button" href="https://github.com/EriksRemess/bbcat"><span>view source</span></a>
           <a class="button" href="https://16colo.rs/"><span>find artwork</span></a>
@@ -513,6 +568,20 @@
           <h2>PNG, APNG, and GIF</h2>
           <p>Turn supported BBS formats into indexed-color PNG files, or preserve ANSI and DDW animation frames in looping APNG or GIF files—without a runtime dependency.</p>
         </article>
+      </section>
+
+      <section class="mac-app" aria-labelledby="mac-app-title">
+        <div>
+          <span class="mac-app-label">Native macOS app</span>
+          <h2 id="mac-app-title">Classic artwork, at home on your Mac.</h2>
+        </div>
+        <div class="mac-app-copy">
+          <p><a href="https://github.com/EriksRemess/bbcat-mac">bbcat for macOS</a> uses the same Rust renderer in a native AppKit viewer, with timed ANSI animation, SAUCE metadata, crisp ×1 and ×2 display, Finder thumbnails, and full Quick Look previews. Ready-to-use builds support Apple silicon Macs running macOS 13 or newer.</p>
+          <div class="mac-app-links">
+            <a href="https://github.com/EriksRemess/bbcat-mac/releases/latest">Download latest release</a>
+            <a href="https://github.com/EriksRemess/bbcat-mac">View bbcat-mac source</a>
+          </div>
+        </div>
       </section>
 
       <div class="formats" aria-label="Supported formats">
