@@ -351,7 +351,10 @@ fn render_inner(
             .map_or_else(|| strip_dos_eof(data), |s| s.content(data))
     };
     if is_xbin {
-        let screen = xbin::parse(content, width_override)?;
+        // XBin declares its own payload size. Give its parser the original
+        // bytes so it can ignore physically valid SAUCE trailers even when a
+        // producer wrote an incorrect SAUCE file-size field.
+        let screen = xbin::parse(data, width_override)?;
         return Ok(Document {
             format: Format::XBin,
             screen,
@@ -641,6 +644,22 @@ mod tests {
     fn signed_binary_formats_take_precedence_over_an_adf_extension() {
         let error = render_named(b"XBIN\x1a", None, "misnamed.adf").unwrap_err();
         assert!(error.contains("truncated XBin header"));
+    }
+
+    #[test]
+    fn xbin_ignores_an_incorrect_sauce_content_length() {
+        let mut data = b"XBIN\x1a\x01\0\x01\0\x10\0A\x07".to_vec();
+        data.push(0x1a);
+        let mut record = [0_u8; 128];
+        record[..7].copy_from_slice(b"SAUCE00");
+        record[90..94].copy_from_slice(&2_u32.to_le_bytes());
+        record[94] = 6;
+        data.extend_from_slice(&record);
+
+        let document = render(&data, None).unwrap();
+        assert_eq!(document.format, Format::XBin);
+        assert_eq!(document.screen.cells[0].character, u16::from(b'A'));
+        assert!(document.sauce.is_some());
     }
 
     #[test]

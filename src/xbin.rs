@@ -102,13 +102,15 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
         let expected = cell_count
             .checked_mul(2)
             .ok_or_else(|| "XBin cell data size overflow".to_owned())?;
-        if encoded.len() != expected {
+        if encoded.len() < expected
+            || (encoded.len() > expected && !is_sauce_suffix(&encoded[expected..]))
+        {
             return Err(format!(
                 "invalid XBin cell data length {}; expected {expected}",
                 encoded.len()
             ));
         }
-        encoded
+        encoded[..expected]
             .chunks_exact(2)
             .map(|pair| (pair[0], pair[1]))
             .collect()
@@ -231,13 +233,55 @@ fn decompress(data: &[u8], cell_count: usize) -> Result<Vec<(u8, u8)>, String> {
         }
     }
 
-    if offset != data.len() {
+    if offset != data.len() && !is_sauce_suffix(&data[offset..]) {
         return Err(format!(
             "XBin compressed stream has {} trailing bytes",
             data.len() - offset
         ));
     }
     Ok(cells)
+}
+
+fn is_sauce_suffix(data: &[u8]) -> bool {
+    let mut end = data.len();
+    let mut found = false;
+
+    // Work backwards because the SAUCE record stores the number of 64-byte
+    // comment lines that immediately precede it. Repeating the loop also
+    // handles files whose metadata was appended without replacing an older
+    // trailer.
+    while end >= 128 {
+        let record_start = end - 128;
+        let record = &data[record_start..end];
+        if !record.starts_with(b"SAUCE00") {
+            break;
+        }
+
+        let comment_length = usize::from(record[104])
+            .checked_mul(64)
+            .and_then(|length| length.checked_add(5));
+        let mut start = record_start;
+        if record[104] != 0 {
+            let Some(comment_length) = comment_length else {
+                return false;
+            };
+            let Some(comment_start) = start.checked_sub(comment_length) else {
+                return false;
+            };
+            if &data[comment_start..comment_start + 5] != b"COMNT" {
+                return false;
+            }
+            start = comment_start;
+        }
+        if start > 0 && data[start - 1] == 0x1a {
+            start -= 1;
+        }
+
+        end = start;
+        found = true;
+    }
+
+    found && end == 0
 }
 
 fn byte(data: &[u8], offset: &mut usize, field: &str) -> Result<u8, String> {
@@ -350,5 +394,29 @@ mod tests {
         let mut overlong = header(1, 1, 16, FLAG_COMPRESSED);
         overlong.extend_from_slice(&[0x01, b'A', 7, b'B', 7]);
         assert!(parse(&overlong, None).unwrap_err().contains("exceeds"));
+    }
+
+    #[test]
+    fn ignores_repeated_sauce_trailers() {
+        let mut data = header(1, 1, 16, 0);
+        data.extend_from_slice(&[b'A', 7]);
+        for reported_length in [2_u32, 131] {
+            data.push(0x1a);
+            let mut record = [0_u8; 128];
+            record[..7].copy_from_slice(b"SAUCE00");
+            record[90..94].copy_from_slice(&reported_length.to_le_bytes());
+            record[94] = 6;
+            data.extend_from_slice(&record);
+        }
+
+        let screen = parse(&data, None).unwrap();
+        assert_eq!(screen.cells[0].character, u16::from(b'A'));
+    }
+
+    #[test]
+    fn rejects_non_sauce_trailing_data() {
+        let mut data = header(1, 1, 16, 0);
+        data.extend_from_slice(&[b'A', 7, 0x1a, b'X']);
+        assert!(parse(&data, None).unwrap_err().contains("length"));
     }
 }
