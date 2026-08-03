@@ -55,6 +55,7 @@ bbcat --output preview.png art.adf
 bbcat --output - art.ans > preview.png
 bbcat --apng animation.png animation.ans
 bbcat --gif animation.gif animation.ans
+bbcat --info animation.ans
 bbcat --2x --kitty art.ans
 bbcat --sauce art.ans
 bbcat --baud 4x animation.ans
@@ -96,6 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         document.format, document.screen.width, document.screen.height
     );
     assert_eq!(document.format, Format::AnsiText);
+    println!("animated: {}", document.info().animated);
 
     std::fs::write("preview.png", document.encode_png(1)?)?;
     Ok(())
@@ -105,11 +107,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 Use `decode` for content-based detection with inferred dimensions, or
 `decode_with_options` to supply a filename hint and width override. A decoded
 `Document` reports its `Format`, final `Screen`, optional `Sauce`, and optional
-`Animation`. Character screens expose cells, glyph and pixel dimensions,
+`Animation`; `Document::is_animated` identifies detected ANSI and DarkDraw
+animations, while `Document::info` returns an owned `DocumentInfo` summary for
+application integration. Character screens expose cells, glyph and pixel dimensions,
 palette and font data; RIPscrip screens expose their indexed raster. Documents
-can be encoded directly to PNG, APNG, or GIF, while the lower-level text and
-Kitty writers remain available for streaming output. ASCIImation has no format
-signature; decode it explicitly with `decode_asciimation`.
+can be encoded directly to PNG, APNG, or GIF. Use `Document::encode_png_fit`
+for a bounded static preview that preserves the artwork's aspect ratio. The
+lower-level text and Kitty writers remain available for streaming output.
+ASCIImation has no format signature; decode it explicitly with
+`decode_asciimation`.
 
 See the complete [library API documentation](https://docs.rs/bbcat/) on docs.rs.
 
@@ -147,6 +153,7 @@ a separate bbcat installation are not required.
 | PNG | `-o FILE`, `--output FILE` | Writes one indexed-color PNG; use `-` to write it to standard output. |
 | APNG | `--apng FILE` | Writes a looping indexed-color animated PNG from an ANSI or DDW animation. |
 | GIF | `--gif FILE` | Writes a looping indexed-color animated GIF from an ANSI or DDW animation. |
+| Information | `--info` | Writes detected format, dimensions, animation frames, rendering capabilities, and SAUCE metadata as JSON. |
 
 Kitty mode requires terminal stdout and a terminal that answers bbcat's Kitty
 graphics protocol probe. [Kitty](https://sw.kovidgoyal.net/kitty/) and
@@ -316,7 +323,7 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 
 | Option | Description |
 | --- | --- |
-| `-w COLS`, `--width COLS` | Override text width. ANSI/text accepts declared widths through 10,000 columns; untagged plain text is inferred through 1,000. DDW and XBin must match their declared width; an untagged DDW may be widened but not narrowed. ADF must be 80, and RIPscrip must be 640. |
+| `-w COLS`, `--width COLS` | Override text width. ANSI/text dimensions are limited by the decoded-cell safety budget. DDW and XBin must match their declared width; an untagged DDW may be widened but not narrowed. ADF must be 80, and RIPscrip must be 640. |
 | `--chunk-lines ROWS` | Set the number of character rows in each Kitty image strip, from 1 through 256. The default is `$LINES - 1`, clamped to 1 through 64, or 24 when `$LINES` is unavailable. |
 | `--kitty` | Use Kitty graphics instead of colored UTF-8. |
 | `--fit` | Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row. |
@@ -325,10 +332,11 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 | `--baud RATE` | Play ANSI animation by source-byte timing or DDW animation by native frame timing, set static ANSI/text row-reveal speed, or control APNG/GIF frame timing. `1X` is the same 25 ms/row as `--slow`; rates scale it proportionally. Run `--baud` alone for familiar suggested values. |
 | `--2x` | Double Kitty or image output width and height. Requires `--kitty`, `--output FILE`, `--apng FILE`, or `--gif FILE`. |
 | `--sauce` | Show the available SAUCE title, author, group, and creation date below the artwork. |
+| `--info` | Print detected format, dimensions, animation frames, rendering capabilities, and SAUCE metadata as JSON. Requires exactly one input and cannot be combined with rendering or output options. |
 | `-o FILE`, `--output FILE` | Write an indexed-color PNG. Use `-` for standard output; requires exactly one input. |
 | `--apng FILE` | Write a looping indexed-color animated PNG from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
 | `--gif FILE` | Write a looping indexed-color animated GIF from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
-| `--asciimation` | Play one explicit asciimation.co.nz-style text stream: a duration plus thirteen ASCII rows per frame. Requires exactly one input and terminal stdout; cannot be combined with Kitty/fit, image output, width, scaling, speed, or SAUCE options. |
+| `--asciimation` | Interpret one explicit asciimation.co.nz-style text stream: a duration plus thirteen ASCII rows per frame. Playback requires terminal stdout; combine with `--info` to inspect it as JSON instead. Cannot be combined with Kitty/fit, image output, width, scaling, speed, or SAUCE options. |
 | `-h`, `--help` | Print command help. |
 | `-V`, `--version` | Print the bbcat version. |
 

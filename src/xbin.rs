@@ -33,9 +33,6 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
     if width == 0 || height == 0 {
         return Err("XBin width and height must be non-zero".to_owned());
     }
-    if width > 1000 {
-        return Err(format!("invalid XBin width {width}; expected 1..=1000"));
-    }
     if let Some(override_width) = width_override
         && override_width != width
     {
@@ -310,6 +307,17 @@ mod tests {
         data
     }
 
+    fn compressed_screen(width: u16, height: u16) -> Vec<u8> {
+        let mut data = header(width, height, 16, FLAG_COMPRESSED);
+        let mut cells = usize::from(width) * usize::from(height);
+        while cells != 0 {
+            let count = cells.min(64);
+            data.extend_from_slice(&[0xc0 | (count as u8 - 1), b' ', 0x07]);
+            cells -= count;
+        }
+        data
+    }
+
     #[test]
     fn decodes_uncompressed_cells() {
         let mut data = header(2, 1, 0, FLAG_NON_BLINK);
@@ -357,6 +365,27 @@ mod tests {
                 (6, 0),
                 (6, 0)
             ]
+        );
+    }
+
+    #[test]
+    fn accepts_wide_and_tall_dimensions_within_the_cell_limit() {
+        for dimensions in [(2_500, 303), (u16::MAX, 1), (1, u16::MAX)] {
+            let screen = parse(&compressed_screen(dimensions.0, dimensions.1), None).unwrap();
+            assert_eq!(
+                (screen.width, screen.height),
+                (dimensions.0.into(), dimensions.1.into())
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_dimensions_above_the_cell_limit() {
+        let data = header(u16::MAX, 153, 16, FLAG_COMPRESSED);
+        assert!(
+            parse(&data, None)
+                .unwrap_err()
+                .contains("cell safety limit")
         );
     }
 

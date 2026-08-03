@@ -6,6 +6,7 @@ description = "Decode ANSI and BBS art in Rust, view it in terminals, or export 
 license = "MIT AND BSD-2-Clause AND Zlib AND LicenseRef-Empathy-font"
 readme = "README.md"
 documentation = "https://docs.rs/bbcat"
+homepage = "https://bbcat.dev"
 repository = "https://github.com/EriksRemess/bbcat"
 keywords = ["ansi-art", "bbs", "kitty", "ripscrip", "terminal"]
 categories = ["command-line-utilities", "multimedia::images"]

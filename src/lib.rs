@@ -62,7 +62,9 @@ pub use kitty::{
     write_screen_slow_cropped, write_screen_slow_fit, write_screen_slow_scaled,
     write_screen_slow_scaled_cropped, write_screen_slow_scaled_fit,
 };
-pub use png::{VGA_PALETTE, XTERM_256_PALETTE, encode_screen, encode_screen_scaled};
+pub use png::{
+    VGA_PALETTE, XTERM_256_PALETTE, encode_screen, encode_screen_fit, encode_screen_scaled,
+};
 pub use sauce::{LetterSpacing, Sauce};
 pub use text::{
     DEFAULT_ANIMATION_BAUD, write_animation, write_animation_at_baud, write_screen as write_text,
@@ -70,8 +72,7 @@ pub use text::{
     write_screen_slow_cropped as write_text_slow_cropped,
 };
 
-const MAX_ANSI_WIDTH: usize = 10_000;
-const MAX_INFERRED_WIDTH: usize = 1_000;
+const LONG_STYLED_LINE_THRESHOLD: usize = 1_000;
 
 /// The result type used by bbcat's high-level library API.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -167,12 +168,76 @@ pub struct Document {
     pub animation: Option<Animation>,
 }
 
+/// Summary of the information discovered while decoding a document.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DocumentInfo {
+    /// Detected source format.
+    pub format: Format,
+    /// Character-grid width used for terminal placement.
+    pub columns: usize,
+    /// Character-grid height used for terminal placement.
+    pub rows: usize,
+    /// Complete rendered dimensions in pixels, when representable.
+    pub pixel_dimensions: Option<(usize, usize)>,
+    /// Dimensions of one character glyph in pixels.
+    pub glyph_dimensions: (usize, usize),
+    /// Whether the decoded screen is an indexed pixel raster rather than cells.
+    pub raster: bool,
+    /// Whether the screen can be emitted through the UTF-8 terminal writer.
+    pub utf8_supported: bool,
+    /// Whether artwork or metadata supplied non-default font data.
+    pub embedded_font: bool,
+    /// Whether decoding identified animation frames.
+    pub animated: bool,
+    /// Number of identified animation frames, or zero for static artwork.
+    pub frame_count: usize,
+    /// Parsed SAUCE or equivalent format metadata.
+    pub sauce: Option<Sauce>,
+}
+
 impl Document {
+    /// Returns whether decoding identified animation frames.
+    ///
+    /// ANSI and DarkDraw animations are detected while decoding. ASCIImation
+    /// text streams have no reliable signature and must instead be decoded
+    /// explicitly with [`decode_asciimation`].
+    pub fn is_animated(&self) -> bool {
+        self.animation.is_some()
+    }
+
+    /// Returns a convenient owned summary for inspection and application
+    /// integration without requiring callers to derive fields themselves.
+    pub fn info(&self) -> DocumentInfo {
+        DocumentInfo {
+            format: self.format,
+            columns: self.screen.width,
+            rows: self.screen.height,
+            pixel_dimensions: self.screen.pixel_dimensions(),
+            glyph_dimensions: self.screen.glyph_dimensions(),
+            raster: self.screen.raster().is_some(),
+            utf8_supported: self.screen.supports_utf8(),
+            embedded_font: self.screen.has_embedded_font(),
+            animated: self.is_animated(),
+            frame_count: self
+                .animation
+                .as_ref()
+                .map_or(0, |animation| animation.frames.len()),
+            sauce: self.sauce.clone(),
+        }
+    }
+
     /// Encodes the complete final screen as an indexed-color PNG.
     ///
     /// `scale` must be at least one. A value of two doubles both dimensions.
     pub fn encode_png(&self, scale: usize) -> Result<Vec<u8>> {
         encode_screen_scaled(&self.screen, 0, self.screen.height, scale).map_err(Error::from)
+    }
+
+    /// Encodes the complete final screen as an indexed-color PNG fitted within
+    /// `maximum_width` by `maximum_height` pixels while preserving its aspect
+    /// ratio. Smaller screens are not enlarged.
+    pub fn encode_png_fit(&self, maximum_width: usize, maximum_height: usize) -> Result<Vec<u8>> {
+        encode_screen_fit(&self.screen, maximum_width, maximum_height).map_err(Error::from)
     }
 
     /// Encodes all animation frames as a looping APNG.
@@ -373,15 +438,8 @@ fn render_inner(
     });
     let width = declared_width.or_else(|| text_width(content)).unwrap_or(80);
 
-    let maximum_width = if declared_width.is_some() {
-        MAX_ANSI_WIDTH
-    } else {
-        MAX_INFERRED_WIDTH
-    };
-    if !(1..=maximum_width).contains(&width) {
-        return Err(format!(
-            "invalid canvas width {width}; expected 1..={maximum_width}"
-        ));
+    if width == 0 {
+        return Err("canvas width must be non-zero".to_owned());
     }
 
     let declared_height = sauce
@@ -510,7 +568,7 @@ fn text_width(data: &[u8]) -> Option<usize> {
     // 80-column DOS terminal supplied the wrapping. A very long styled line is
     // therefore not a credible canvas width; returning None selects the same
     // conventional 80-column fallback used for cursor-positioned ANSI.
-    (widest > 0 && !(styled && widest > MAX_INFERRED_WIDTH)).then_some(widest)
+    (widest > 0 && !(styled && widest > LONG_STYLED_LINE_THRESHOLD)).then_some(widest)
 }
 
 fn is_home_position(parameters: &[u8]) -> bool {
@@ -585,6 +643,7 @@ mod tests {
         let document = render(data, Some(1)).unwrap();
 
         assert_eq!(document.screen.cells[0].character, u16::from(b'B'));
+        assert!(document.is_animated());
         let animation = document.animation.as_ref().unwrap();
         assert_eq!(animation.frames.len(), 2);
         assert_eq!(animation.frames[0].source_bytes, 14);
@@ -595,7 +654,7 @@ mod tests {
     #[test]
     fn a_single_home_is_not_misclassified_as_animation() {
         let document = render(b"\x1b[HA", Some(1)).unwrap();
-        assert!(document.animation.is_none());
+        assert!(!document.is_animated());
         assert_eq!(document.screen.cells[0].character, u16::from(b'A'));
     }
 
@@ -757,16 +816,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_excessive_ansi_widths() {
-        let error = render(b"wide", Some(MAX_ANSI_WIDTH + 1)).unwrap_err();
-        assert!(error.contains("invalid canvas width"));
-        assert!(error.contains("10000"));
+    fn accepts_declared_ansi_widths_within_the_cell_limit() {
+        let document = render(b"wide", Some(12_000)).unwrap();
+        assert_eq!((document.screen.width, document.screen.height), (12_000, 1));
     }
 
     #[test]
-    fn rejects_excessive_inferred_plain_text_widths() {
-        let error = render(&vec![b'x'; MAX_INFERRED_WIDTH + 1], None).unwrap_err();
-        assert!(error.contains("invalid canvas width"));
-        assert!(error.contains("1000"));
+    fn rejects_zero_or_over_budget_ansi_widths() {
+        assert!(render(b"wide", Some(0)).unwrap_err().contains("non-zero"));
+        assert!(
+            render(b"wide", Some(ansi::MAX_CELLS + 1))
+                .unwrap_err()
+                .contains("cell safety limit")
+        );
+    }
+
+    #[test]
+    fn accepts_extra_wide_inferred_plain_text_within_the_cell_limit() {
+        let document = render(&vec![b'x'; 1_750], None).unwrap();
+        assert_eq!((document.screen.width, document.screen.height), (1_750, 1));
     }
 }

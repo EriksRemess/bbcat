@@ -86,6 +86,30 @@ pub fn encode_screen_scaled(
     encode_screen_scaled_with_depth(screen, first_row, rows, scale, false)
 }
 
+/// Encodes the complete screen within a pixel bounding box while preserving
+/// its aspect ratio. Screens already inside the bounds are not enlarged.
+pub fn encode_screen_fit(
+    screen: &Screen,
+    maximum_width: usize,
+    maximum_height: usize,
+) -> Result<Vec<u8>, String> {
+    if maximum_width == 0 || maximum_height == 0 {
+        return Err("PNG fit dimensions must be non-zero".to_owned());
+    }
+    let (source_width, source_height) =
+        screen.pixel_dimensions().ok_or("PNG dimensions overflow")?;
+    let height_limited_width =
+        usize::try_from(source_width as u128 * maximum_height as u128 / source_height as u128)
+            .unwrap_or(usize::MAX);
+    let fitted_width = source_width.min(maximum_width).min(height_limited_width);
+    if fitted_width == 0 {
+        return Err(format!(
+            "PNG cannot preserve its aspect ratio within {maximum_width}x{maximum_height} pixels"
+        ));
+    }
+    encode_screen_scaled_fit(screen, 0, screen.height, 1, fitted_width)
+}
+
 pub(crate) fn encode_screen_scaled_with_depth(
     screen: &Screen,
     first_row: usize,

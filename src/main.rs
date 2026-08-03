@@ -26,6 +26,7 @@ struct Options {
     baud: Option<u64>,
     scale: usize,
     sauce: bool,
+    info: bool,
     files: Vec<String>,
 }
 
@@ -69,6 +70,20 @@ fn run() -> Result<ExitCode, String> {
     if options.asciimation && options.files.len() != 1 {
         return Err("--asciimation requires exactly one input file".to_owned());
     }
+    if options.info && options.files.len() != 1 {
+        return Err("--info requires exactly one input file".to_owned());
+    }
+    if options.info
+        && (image_output
+            || options.kitty
+            || options.fit
+            || options.delay.is_some()
+            || options.baud.is_some()
+            || options.scale > 1
+            || options.sauce)
+    {
+        return Err("--info cannot be combined with rendering or output options".to_owned());
+    }
     if options.asciimation
         && (image_output
             || options.kitty
@@ -106,7 +121,7 @@ fn run() -> Result<ExitCode, String> {
         return Err("--2x requires --kitty, --output FILE, --apng FILE, or --gif FILE".to_owned());
     }
     let stdout_is_terminal = io::stdout().is_terminal();
-    if options.asciimation && !stdout_is_terminal {
+    if options.asciimation && !options.info && !stdout_is_terminal {
         return Err("--asciimation requires terminal stdout".to_owned());
     }
     if options.kitty && !stdout_is_terminal {
@@ -130,6 +145,10 @@ fn run() -> Result<ExitCode, String> {
         let data = input.data;
         let animation =
             bbcat::decode_asciimation(&data).map_err(|error| format!("{file}: {error}"))?;
+        if options.info {
+            write_asciimation_info(&mut stdout, &file, data.len(), &animation)?;
+            return Ok(ExitCode::SUCCESS);
+        }
         if let Some(columns) = terminal_columns
             && animation.width > columns
         {
@@ -171,6 +190,10 @@ fn run() -> Result<ExitCode, String> {
                 continue;
             }
         };
+        if options.info {
+            write_document_info(&mut stdout, &file, data.len(), &document)?;
+            continue;
+        }
         if options.delay.is_some() && document.animation.is_some() {
             eprintln!(
                 "bbcat: {file}: use --baud to control animation speed; --slow/--delay reveal static art by row"
@@ -353,6 +376,183 @@ fn read_input(path: &str) -> Result<Input, String> {
     })
 }
 
+fn write_document_info<W: io::Write>(
+    output: &mut W,
+    file: &str,
+    source_bytes: usize,
+    document: &bbcat::Document,
+) -> Result<(), String> {
+    let info = document.info();
+    let (pixel_width, pixel_height) = info
+        .pixel_dimensions
+        .map_or(("null".to_owned(), "null".to_owned()), |(width, height)| {
+            (width.to_string(), height.to_string())
+        });
+    let frames = document
+        .animation
+        .as_ref()
+        .map(|animation| {
+            animation
+                .frames
+                .iter()
+                .map(|frame| {
+                    let duration = frame.duration.map_or("null".to_owned(), |duration| {
+                        duration.as_millis().to_string()
+                    });
+                    format!(
+                        "{{\"sourceBytes\":{},\"durationMs\":{duration}}}",
+                        frame.source_bytes
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    let clear_on_finish = document
+        .animation
+        .as_ref()
+        .is_some_and(|animation| animation.clear_on_finish);
+    let sauce = sauce_json(info.sauce.as_ref());
+    writeln!(
+        output,
+        concat!(
+            "{{\n",
+            "  \"file\": {},\n",
+            "  \"sourceBytes\": {},\n",
+            "  \"format\": {},\n",
+            "  \"formatName\": {},\n",
+            "  \"dimensions\": {{\"columns\":{},\"rows\":{},\"pixelWidth\":{},\"pixelHeight\":{},\"glyphWidth\":{},\"glyphHeight\":{}}},\n",
+            "  \"raster\": {},\n",
+            "  \"utf8Supported\": {},\n",
+            "  \"embeddedFont\": {},\n",
+            "  \"animation\": {{\"animated\":{},\"frameCount\":{},\"clearOnFinish\":{},\"frames\":[{}]}},\n",
+            "  \"sauce\": {}\n",
+            "}}"
+        ),
+        json_string(file),
+        source_bytes,
+        json_string(format_id(info.format)),
+        json_string(&info.format.to_string()),
+        info.columns,
+        info.rows,
+        pixel_width,
+        pixel_height,
+        info.glyph_dimensions.0,
+        info.glyph_dimensions.1,
+        info.raster,
+        info.utf8_supported,
+        info.embedded_font,
+        info.animated,
+        info.frame_count,
+        clear_on_finish,
+        frames,
+        sauce,
+    )
+    .map_err(|error| format!("stdout: {error}"))
+}
+
+fn write_asciimation_info<W: io::Write>(
+    output: &mut W,
+    file: &str,
+    source_bytes: usize,
+    animation: &bbcat::Asciimation,
+) -> Result<(), String> {
+    let frames = animation
+        .frames
+        .iter()
+        .map(|frame| {
+            format!(
+                "{{\"sourceBytes\":null,\"durationMs\":{}}}",
+                frame.duration().as_millis()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    writeln!(
+        output,
+        concat!(
+            "{{\n",
+            "  \"file\": {},\n",
+            "  \"sourceBytes\": {},\n",
+            "  \"format\": \"asciimation\",\n",
+            "  \"formatName\": \"ASCIImation\",\n",
+            "  \"dimensions\": {{\"columns\":{},\"rows\":13,\"pixelWidth\":null,\"pixelHeight\":null,\"glyphWidth\":null,\"glyphHeight\":null}},\n",
+            "  \"raster\": false,\n",
+            "  \"utf8Supported\": true,\n",
+            "  \"embeddedFont\": false,\n",
+            "  \"animation\": {{\"animated\":true,\"frameCount\":{},\"clearOnFinish\":true,\"frames\":[{}]}},\n",
+            "  \"sauce\": null\n",
+            "}}"
+        ),
+        json_string(file),
+        source_bytes,
+        animation.width,
+        animation.frames.len(),
+        frames,
+    )
+    .map_err(|error| format!("stdout: {error}"))
+}
+
+fn sauce_json(sauce: Option<&bbcat::Sauce>) -> String {
+    let Some(sauce) = sauce else {
+        return "null".to_owned();
+    };
+    let letter_spacing = match sauce.letter_spacing {
+        Some(bbcat::LetterSpacing::EightPixels) => "8",
+        Some(bbcat::LetterSpacing::NinePixels) => "9",
+        None => "null",
+    };
+    format!(
+        concat!(
+            "{{\"title\":{},\"author\":{},\"group\":{},\"date\":{},",
+            "\"width\":{},\"height\":{},\"iceColors\":{},",
+            "\"letterSpacing\":{},\"fontName\":{}}}"
+        ),
+        json_string(&sauce.title),
+        json_string(&sauce.author),
+        json_string(&sauce.group),
+        json_string(&sauce.date),
+        sauce.width,
+        sauce.height,
+        sauce.ice_colors,
+        letter_spacing,
+        json_string(&sauce.font_name),
+    )
+}
+
+fn format_id(format: bbcat::Format) -> &'static str {
+    match format {
+        bbcat::Format::AnsiText => "ansi-text",
+        bbcat::Format::DarkDraw => "darkdraw",
+        bbcat::Format::ArtWorx => "artworx",
+        bbcat::Format::Ripscrip => "ripscrip",
+        bbcat::Format::XBin => "xbin",
+        _ => "unknown",
+    }
+}
+
+fn json_string(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len() + 2);
+    encoded.push('"');
+    for character in value.chars() {
+        match character {
+            '"' => encoded.push_str("\\\""),
+            '\\' => encoded.push_str("\\\\"),
+            '\n' => encoded.push_str("\\n"),
+            '\r' => encoded.push_str("\\r"),
+            '\t' => encoded.push_str("\\t"),
+            '\u{08}' => encoded.push_str("\\b"),
+            '\u{0c}' => encoded.push_str("\\f"),
+            character if character <= '\u{1f}' => {
+                encoded.push_str(&format!("\\u{:04x}", character as u32));
+            }
+            character => encoded.push(character),
+        }
+    }
+    encoded.push('"');
+    encoded
+}
+
 fn write_png<W: io::Write>(output: &mut W, path: &Path, png: &[u8]) -> Result<(), String> {
     if path == Path::new("-") {
         output
@@ -419,6 +619,7 @@ fn parse_args() -> Result<Option<Options>, String> {
     let mut baud = None;
     let mut scale = 1;
     let mut sauce = false;
+    let mut info = false;
     let mut files = Vec::new();
     let mut arguments = env::args().skip(1);
     while let Some(argument) = arguments.next() {
@@ -469,6 +670,7 @@ fn parse_args() -> Result<Option<Options>, String> {
             "--baud" => baud = Some(baud_rate(&argument, arguments.next())?),
             "--2x" => scale = 2,
             "--sauce" => sauce = true,
+            "--info" => info = true,
             "--" => {
                 files.extend(arguments);
                 break;
@@ -494,6 +696,7 @@ fn parse_args() -> Result<Option<Options>, String> {
         baud,
         scale,
         sauce,
+        info,
         files,
     }))
 }
@@ -573,10 +776,11 @@ Options:
       --baud RATE           Animation speed or static row-reveal speed: positive RATE or Nx (try --baud for suggestions; 1X is 25 ms/row)
       --2x                  Double Kitty or image output dimensions
       --sauce               Show a SAUCE caption below the artwork
+      --info                Print detected artwork information as JSON
   -o, --output FILE         Write a PNG file; use - for stdout
       --apng FILE           Write an animated PNG; use - for stdout
       --gif FILE            Write an animated GIF; use - for stdout
-      --asciimation         Play a 13-row asciimation.co.nz frame stream
+      --asciimation         Interpret a 13-row asciimation.co.nz frame stream
   -h, --help                Print help
   -V, --version             Print version"#,
         env!("CARGO_PKG_VERSION")
@@ -644,6 +848,39 @@ mod tests {
         let mut output = Vec::new();
         write_png(&mut output, Path::new("-"), b"PNG").unwrap();
         assert_eq!(output, b"PNG");
+    }
+
+    #[test]
+    fn writes_document_information_as_json() {
+        let document = bbcat::decode(b"A").unwrap();
+        let mut output = Vec::new();
+
+        write_document_info(&mut output, "quote\".ans", 1, &document).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.starts_with("{\n"));
+        assert!(output.contains("\"file\": \"quote\\\".ans\""));
+        assert!(output.contains("\"sourceBytes\": 1"));
+        assert!(output.contains("\"format\": \"ansi-text\""));
+        assert!(output.contains("\"animated\":false"));
+        assert!(output.contains("\"sauce\": null"));
+    }
+
+    #[test]
+    fn writes_explicit_asciimation_information_as_json() {
+        let mut input = String::from("2\n");
+        for _ in 0..13 {
+            input.push_str("x\n");
+        }
+        let animation = bbcat::decode_asciimation(input.as_bytes()).unwrap();
+        let mut output = Vec::new();
+
+        write_asciimation_info(&mut output, "demo.txt", input.len(), &animation).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("\"format\": \"asciimation\""));
+        assert!(output.contains("\"frameCount\":1"));
+        assert!(output.contains("\"durationMs\":200"));
     }
 
     #[test]

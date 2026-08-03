@@ -25,6 +25,18 @@ fn decodes_and_encodes_through_the_public_api() -> Result<(), Box<dyn StdError>>
     assert_eq!(document.screen.palette_256()[235], [38, 38, 38]);
     assert_eq!(document.screen.font().unwrap().len(), 256 * 16);
     assert!(document.screen.raster().is_none());
+    assert!(!document.is_animated());
+    let info = document.info();
+    assert_eq!(info.format, Format::AnsiText);
+    assert_eq!((info.columns, info.rows), (4, 1));
+    assert_eq!(info.pixel_dimensions, Some((32, 16)));
+    assert_eq!(info.glyph_dimensions, (8, 16));
+    assert!(info.utf8_supported);
+    assert!(!info.raster);
+    assert!(!info.embedded_font);
+    assert!(!info.animated);
+    assert_eq!(info.frame_count, 0);
+    assert!(info.sauce.is_none());
 
     let png = document.encode_png(1)?;
     assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
@@ -51,6 +63,25 @@ fn preserves_xterm_256_colors_in_screen_and_png() -> Result<(), Box<dyn StdError
 }
 
 #[test]
+fn fits_png_output_within_a_pixel_bounding_box() -> Result<(), Box<dyn StdError>> {
+    let document = bbcat::decode_with_options(
+        b"wide",
+        DecodeOptions {
+            file_name: Some(Path::new("wide.ans")),
+            width: Some(100),
+        },
+    )?;
+    let png = document.encode_png_fit(200, 200)?;
+    assert_eq!(u32::from_be_bytes(png[16..20].try_into()?), 200);
+    assert_eq!(u32::from_be_bytes(png[20..24].try_into()?), 4);
+
+    let png = document.encode_png_fit(1_000, 8)?;
+    assert_eq!(u32::from_be_bytes(png[16..20].try_into()?), 400);
+    assert_eq!(u32::from_be_bytes(png[20..24].try_into()?), 8);
+    Ok(())
+}
+
+#[test]
 fn reports_the_detected_format() {
     let error = bbcat::decode(b"XBIN\x1a").unwrap_err();
     assert!(error.message().contains("truncated XBin header"));
@@ -64,6 +95,7 @@ fn reports_the_detected_format() {
     );
     let document = bbcat::decode(data.as_bytes()).unwrap();
     assert_eq!(document.format, Format::DarkDraw);
+    assert!(document.is_animated());
 }
 
 #[test]
@@ -73,6 +105,7 @@ fn exposes_character_and_raster_formats() -> Result<(), Box<dyn StdError>> {
     ];
     let document = bbcat::decode(&xbin)?;
     assert_eq!(document.format, Format::XBin);
+    assert!(!document.is_animated());
     assert_eq!(document.screen.cell(0, 0).unwrap().foreground, 14);
 
     let document = bbcat::decode(b"!|*|c0F|L00000A0A|#")?;
@@ -93,7 +126,10 @@ fn exposes_animation_encoders_and_explicit_asciimation() -> Result<(), Box<dyn S
             width: Some(1),
         },
     )?;
-    assert!(document.animation.is_some());
+    assert!(document.is_animated());
+    let info = document.info();
+    assert!(info.animated);
+    assert_eq!(info.frame_count, 2);
     assert!(
         document
             .encode_apng(bbcat::DEFAULT_ANIMATION_BAUD, 1)?

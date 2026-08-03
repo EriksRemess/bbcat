@@ -125,6 +125,20 @@ impl Screen {
     pub fn raster(&self) -> Option<&Raster> {
         self.raster.as_ref()
     }
+
+    /// Returns whether the screen can be represented by the UTF-8 terminal
+    /// writer without losing raster or 512-character font data.
+    pub fn supports_utf8(&self) -> bool {
+        self.raster.is_none()
+            && self.utf8_supported
+            && self.cells.iter().all(|cell| cell.character <= 255)
+    }
+
+    /// Returns whether decoding selected font data carried by the artwork or
+    /// its metadata instead of bbcat's built-in VGA font.
+    pub fn has_embedded_font(&self) -> bool {
+        self.font.is_some()
+    }
 }
 
 /// An indexed-color pixel canvas produced by a raster format such as RIPscrip.

@@ -351,6 +351,7 @@
 <span class="prompt">$</span> bbcat --output - art.ans &gt; preview.png
 <span class="prompt">$</span> bbcat --apng animation.png animation.ans
 <span class="prompt">$</span> bbcat --gif animation.gif animation.ans
+<span class="prompt">$</span> bbcat --info animation.ans
 <span class="prompt">$</span> bbcat --2x --kitty art.ans
 <span class="prompt">$</span> bbcat --sauce art.ans
 <span class="prompt">$</span> bbcat --baud 4x animation.ans
@@ -380,12 +381,13 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
         document.format, document.screen.width, document.screen.height
     );
     assert_eq!(document.format, Format::AnsiText);
+    println!("animated: {}", document.info().animated);
 
     std::fs::write("preview.png", document.encode_png(1)?)?;
     Ok(())
 }</code></pre>
-          <p>Use <code>decode</code> for content-based detection with inferred dimensions, or <code>decode_with_options</code> to supply a filename hint and width override. A decoded <code>Document</code> reports its <code>Format</code>, final <code>Screen</code>, optional <code>Sauce</code>, and optional <code>Animation</code>.</p>
-          <p>Character screens expose cells, glyph and pixel dimensions, palette and font data; RIPscrip screens expose their indexed raster. Documents can be encoded directly to PNG, APNG, or GIF, while lower-level text and Kitty writers remain available for streaming output. ASCIImation has no format signature; decode it explicitly with <code>decode_asciimation</code>.</p>
+          <p>Use <code>decode</code> for content-based detection with inferred dimensions, or <code>decode_with_options</code> to supply a filename hint and width override. A decoded <code>Document</code> reports its <code>Format</code>, final <code>Screen</code>, optional <code>Sauce</code>, and optional <code>Animation</code>; <code>Document::is_animated</code> identifies detected ANSI and DarkDraw animations, while <code>Document::info</code> returns an owned <code>DocumentInfo</code> summary for application integration.</p>
+          <p>Character screens expose cells, glyph and pixel dimensions, palette and font data; RIPscrip screens expose their indexed raster. Documents can be encoded directly to PNG, APNG, or GIF. Use <code>Document::encode_png_fit</code> for a bounded static preview that preserves the artwork's aspect ratio. Lower-level text and Kitty writers remain available for streaming output. ASCIImation has no format signature; decode it explicitly with <code>decode_asciimation</code>.</p>
           <p><a href="https://docs.rs/bbcat/">Browse the complete library API documentation on docs.rs.</a></p>
         </section>
 
@@ -408,6 +410,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
                 <tr><td>PNG</td><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Writes one indexed-color PNG; use <code>-</code> to write it to standard output.</td></tr>
                 <tr><td>APNG</td><td><code>--apng FILE</code></td><td>Writes a looping indexed-color animated PNG from an ANSI or DDW animation.</td></tr>
                 <tr><td>GIF</td><td><code>--gif FILE</code></td><td>Writes a looping indexed-color animated GIF from an ANSI or DDW animation.</td></tr>
+                <tr><td>Information</td><td><code>--info</code></td><td>Writes detected format, dimensions, animation frames, rendering capabilities, and SAUCE metadata as JSON.</td></tr>
               </tbody>
             </table>
           </div>
@@ -484,7 +487,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
             <table>
               <thead><tr><th>Option</th><th>Description</th></tr></thead>
               <tbody>
-                <tr><td><code>-w COLS</code><br><code>--width COLS</code></td><td>Override text width. ANSI/text accepts declared widths through 10,000 columns; untagged plain text is inferred through 1,000. DDW and XBin must match their declared width; untagged DDW may be widened but not narrowed. ADF must be 80 and RIPscrip must be 640.</td></tr>
+                <tr><td><code>-w COLS</code><br><code>--width COLS</code></td><td>Override text width. ANSI/text dimensions are limited by the decoded-cell safety budget. DDW and XBin must match their declared width; untagged DDW may be widened but not narrowed. ADF must be 80 and RIPscrip must be 640.</td></tr>
                 <tr><td><code>--chunk-lines ROWS</code></td><td>Set Kitty image-strip height from 1 through 256 character rows. The default is <code>$LINES - 1</code>, clamped to 1 through 64, or 24 when <code>$LINES</code> is unavailable.</td></tr>
                 <tr><td><code>--kitty</code></td><td>Use Kitty graphics instead of colored UTF-8.</td></tr>
                 <tr><td><code>--fit</code></td><td>Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row.</td></tr>
@@ -493,10 +496,11 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
                 <tr><td><code>--baud RATE</code></td><td>Control ANSI source-byte timing, DDW native frame timing, static ANSI/text row reveal, or APNG/GIF timing. <code>1X</code> is 25 ms per row. Run <code>bbcat --baud</code> alone for suggested values.</td></tr>
                 <tr><td><code>--2x</code></td><td>Double Kitty or image output width and height. Requires <code>--kitty</code>, <code>--output</code>, <code>--apng</code>, or <code>--gif</code>.</td></tr>
                 <tr><td><code>--sauce</code></td><td>Show available SAUCE title, author, group, and creation date below the artwork.</td></tr>
+                <tr><td><code>--info</code></td><td>Print detected format, dimensions, animation frames, rendering capabilities, and SAUCE metadata as JSON. Requires exactly one input and cannot be combined with rendering or output options.</td></tr>
                 <tr><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Write an indexed-color PNG. Use <code>-</code> for standard output; requires exactly one input.</td></tr>
                 <tr><td><code>--apng FILE</code></td><td>Write a looping indexed-color animated PNG from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
                 <tr><td><code>--gif FILE</code></td><td>Write a looping indexed-color animated GIF from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
-                <tr><td><code>--asciimation</code></td><td>Play one explicit asciimation.co.nz-style stream containing a duration plus thirteen ASCII rows per frame. Requires exactly one input and terminal stdout; cannot be combined with Kitty/fit, image output, width, scaling, speed, or SAUCE options.</td></tr>
+                <tr><td><code>--asciimation</code></td><td>Interpret one explicit asciimation.co.nz-style stream containing a duration plus thirteen ASCII rows per frame. Playback requires terminal stdout; combine with <code>--info</code> to inspect it as JSON instead. Cannot be combined with Kitty/fit, image output, width, scaling, speed, or SAUCE options.</td></tr>
                 <tr><td><code>-h</code>, <code>--help</code></td><td>Print command help.</td></tr>
                 <tr><td><code>-V</code>, <code>--version</code></td><td>Print the bbcat version.</td></tr>
               </tbody>
