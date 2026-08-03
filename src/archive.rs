@@ -285,7 +285,9 @@ impl Huffman {
             if length > 15 {
                 return Err("invalid Deflate Huffman code length".to_owned());
             }
-            counts[usize::from(length)] += 1;
+            if length != 0 {
+                counts[usize::from(length)] += 1;
+            }
         }
         if counts[1..].iter().all(|&count| count == 0) {
             return Ok(None);
@@ -677,6 +679,18 @@ mod tests {
         }]);
 
         assert_eq!(extract_preview(&archive).unwrap().data, plain);
+    }
+
+    #[test]
+    fn ignores_unused_symbols_when_building_huffman_codes() {
+        // Unused symbols do not participate in the canonical-code counts. If
+        // length zero is counted, this valid sparse tree overflows the u16
+        // accumulator while assigning its longest codes.
+        let lengths = [
+            0, 0, 0, 2, 2, 2, 3, 4, 5, 6, 7, 9, 9, 10, 10, 10, 11, 12, 13, 14, 14,
+        ];
+
+        assert!(Huffman::new(&lengths).unwrap().is_some());
     }
 
     #[test]
