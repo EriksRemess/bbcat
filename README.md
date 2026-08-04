@@ -49,6 +49,8 @@ Use `--` before a filename that begins with `-`.
 ```console
 bbcat art.ans FILE_ID.DIZ
 bbcat mist0526.zip
+bbcat --list-archive mist0526.zip
+bbcat 'mist0526.zip:artwork/demo.ans'
 bbcat < art.ans
 bbcat --kitty scene.xb
 bbcat --output preview.png art.adf
@@ -67,7 +69,9 @@ archive description when one is present, preferring `FILE_ID.ANS` and then
 `FILE_ID.DIZ`; otherwise it uses the first supported ANSI/BBS art entry. Stored
 and ordinary Deflate entries are read directly without an external unzip tool
 or an added library dependency. Encrypted, multi-disk, and ZIP64 archives are
-not supported.
+not supported. Use `--list-archive` to list supported entries and
+`archive.zip:entry/name.ans` to open one explicitly. macOS metadata, hidden
+files, `Thumbs.db`, and `desktop.ini` are omitted from artwork selection.
 
 ## Library use
 
@@ -116,6 +120,11 @@ for a bounded static preview that preserves the artwork's aspect ratio. The
 lower-level text and Kitty writers remain available for streaming output.
 ASCIImation has no format signature; decode it explicitly with
 `decode_asciimation`.
+
+Use `is_zip` and `extract_archive_preview` to select and decompress the same ZIP
+art-pack preview used by the CLI. `list_archive_artworks` returns supported
+entry names, and `extract_archive_artwork` extracts a named entry. Pass the
+returned `ArchiveEntry` data and name to `decode_with_options`.
 
 See the complete [library API documentation](https://docs.rs/bbcat/) on docs.rs.
 
@@ -303,7 +312,8 @@ always retains its full dimensions.
   proportional BGI stroke fonts. RIPscrip is rendered to a 640x350 canvas and
   requires Kitty or PNG output.
 - ZIP art packs using stored or Deflate compression. The CLI selects the pack's
-  `FILE_ID.ANS`, `FILE_ID.DIZ`, or first supported artwork as a preview.
+  `FILE_ID.ANS`, `FILE_ID.DIZ`, or first supported artwork as a preview, and can
+  list or open another supported entry explicitly.
 
 SAUCE metadata is used for content length, canvas dimensions, iCE color mode,
 8- or 9-pixel VGA letter spacing, and named IBM VGA50, Amiga MicroKnight,

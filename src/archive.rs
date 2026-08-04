@@ -8,10 +8,13 @@
 const MAX_ENTRY_SIZE: usize = 64 * 1024 * 1024;
 const MAX_ENTRIES: usize = 4096;
 
+/// An artwork entry selected from a ZIP art pack.
 #[derive(Debug)]
-pub(crate) struct Entry {
-    pub(crate) name: String,
-    pub(crate) data: Vec<u8>,
+pub struct ArchiveEntry {
+    /// The entry name stored in the archive.
+    pub name: String,
+    /// The uncompressed entry contents.
+    pub data: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -26,14 +29,15 @@ struct CentralEntry {
     local_offset: usize,
 }
 
-pub(crate) fn is_zip(data: &[u8]) -> bool {
+/// Returns whether bytes begin with a recognized ZIP record signature.
+pub fn is_zip(data: &[u8]) -> bool {
     matches!(
         data.get(..4),
         Some(b"PK\x03\x04" | b"PK\x05\x06" | b"PK\x07\x08")
     )
 }
 
-pub(crate) fn extract_preview(data: &[u8]) -> Result<Entry, String> {
+pub(crate) fn extract_preview(data: &[u8]) -> Result<ArchiveEntry, String> {
     let entries = central_directory(data)?;
     let selected = entries
         .iter()
@@ -45,7 +49,32 @@ pub(crate) fn extract_preview(data: &[u8]) -> Result<Entry, String> {
     extract(data, selected)
 }
 
+pub(crate) fn list_artworks(data: &[u8]) -> Result<Vec<String>, String> {
+    Ok(central_directory(data)?
+        .into_iter()
+        .filter(|entry| preview_rank(&entry.name).is_some())
+        .map(|entry| entry.name)
+        .collect())
+}
+
+pub(crate) fn extract_artwork(data: &[u8], name: &str) -> Result<ArchiveEntry, String> {
+    let entries = central_directory(data)?;
+    let entry = entries
+        .iter()
+        .find(|entry| entry.name == name)
+        .ok_or_else(|| format!("ZIP archive contains no entry named {name}"))?;
+    if preview_rank(&entry.name).is_none() {
+        return Err(format!(
+            "{name}: ZIP entry is not supported ANSI or BBS artwork"
+        ));
+    }
+    extract(data, entry)
+}
+
 fn preview_rank(name: &str) -> Option<u8> {
+    if ignored_entry(name) {
+        return None;
+    }
     let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
     let upper = base.to_ascii_uppercase();
     if upper == "FILE_ID.ANS" {
@@ -65,6 +94,15 @@ fn preview_rank(name: &str) -> Option<u8> {
         "TXT" => Some(5),
         _ => None,
     }
+}
+
+fn ignored_entry(name: &str) -> bool {
+    name.split(['/', '\\']).any(|component| {
+        component.starts_with('.')
+            || component.eq_ignore_ascii_case("__MACOSX")
+            || component.eq_ignore_ascii_case("Thumbs.db")
+            || component.eq_ignore_ascii_case("desktop.ini")
+    })
 }
 
 fn central_directory(data: &[u8]) -> Result<Vec<CentralEntry>, String> {
@@ -176,7 +214,7 @@ fn find_eocd(data: &[u8]) -> Option<usize> {
     })
 }
 
-fn extract(data: &[u8], entry: &CentralEntry) -> Result<Entry, String> {
+fn extract(data: &[u8], entry: &CentralEntry) -> Result<ArchiveEntry, String> {
     if entry.flags & 1 != 0 {
         return Err(format!(
             "{}: encrypted ZIP entries are not supported",
@@ -242,7 +280,7 @@ fn extract(data: &[u8], entry: &CentralEntry) -> Result<Entry, String> {
     if crc32(&output) != entry.crc {
         return Err(format!("{}: ZIP CRC check failed", entry.name));
     }
-    Ok(Entry {
+    Ok(ArchiveEntry {
         name: entry.name.clone(),
         data: output,
     })
@@ -645,6 +683,116 @@ mod tests {
         let preview = extract_preview(&archive).unwrap();
         assert_eq!(preview.name, "FILE_ID.ANS");
         assert_eq!(preview.data, b"ANSI archive description");
+    }
+
+    #[test]
+    fn lists_supported_artwork_and_ignores_archive_metadata() {
+        let archive = zip(&[
+            TestEntry {
+                name: "__MACOSX/._FILE_ID.ANS",
+                method: 0,
+                compressed: b"metadata",
+                plain: b"metadata",
+            },
+            TestEntry {
+                name: ".DS_Store",
+                method: 0,
+                compressed: b"metadata",
+                plain: b"metadata",
+            },
+            TestEntry {
+                name: "art/.hidden.ans",
+                method: 0,
+                compressed: b"hidden",
+                plain: b"hidden",
+            },
+            TestEntry {
+                name: "Thumbs.db",
+                method: 0,
+                compressed: b"metadata",
+                plain: b"metadata",
+            },
+            TestEntry {
+                name: "desktop.ini",
+                method: 0,
+                compressed: b"metadata",
+                plain: b"metadata",
+            },
+            TestEntry {
+                name: "README.txt",
+                method: 0,
+                compressed: b"instructions",
+                plain: b"instructions",
+            },
+            TestEntry {
+                name: "cover.gif",
+                method: 0,
+                compressed: b"GIF89a",
+                plain: b"GIF89a",
+            },
+            TestEntry {
+                name: "FILE_ID.DIZ",
+                method: 0,
+                compressed: b"description",
+                plain: b"description",
+            },
+            TestEntry {
+                name: "art/demo.ans",
+                method: 0,
+                compressed: b"demo",
+                plain: b"demo",
+            },
+            TestEntry {
+                name: "notes.nfo",
+                method: 0,
+                compressed: b"notes",
+                plain: b"notes",
+            },
+        ]);
+
+        assert_eq!(
+            list_artworks(&archive).unwrap(),
+            ["FILE_ID.DIZ", "art/demo.ans", "notes.nfo"]
+        );
+        assert_eq!(extract_preview(&archive).unwrap().name, "FILE_ID.DIZ");
+    }
+
+    #[test]
+    fn extracts_a_supported_entry_by_exact_name() {
+        let archive = zip(&[
+            TestEntry {
+                name: "one.ans",
+                method: 0,
+                compressed: b"one",
+                plain: b"one",
+            },
+            TestEntry {
+                name: "sub/two.ans",
+                method: 0,
+                compressed: b"two",
+                plain: b"two",
+            },
+            TestEntry {
+                name: "._three.ans",
+                method: 0,
+                compressed: b"metadata",
+                plain: b"metadata",
+            },
+        ]);
+
+        let selected = extract_artwork(&archive, "sub/two.ans").unwrap();
+        assert_eq!(selected.name, "sub/two.ans");
+        assert_eq!(selected.data, b"two");
+        assert!(
+            extract_artwork(&archive, "two.ans")
+                .unwrap_err()
+                .contains("no entry named")
+        );
+        assert!(
+            extract_artwork(&archive, "._three.ans")
+                .unwrap_err()
+                .contains("not supported")
+        );
     }
 
     #[test]

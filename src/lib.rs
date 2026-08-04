@@ -9,6 +9,9 @@
 //! [`DecodeOptions::file_name`] when a file extension should disambiguate ADF,
 //! DDW, or RIPscrip input, and [`DecodeOptions::width`] to override the inferred
 //! text width.
+//! ZIP art packs can be inspected with [`extract_archive_preview`] or
+//! [`list_archive_artworks`], and a named entry can be read with
+//! [`extract_archive_artwork`] before passing it to [`decode_with_options`].
 //!
 //! ```
 //! use bbcat::{DecodeOptions, Format};
@@ -40,6 +43,7 @@ use std::{fmt, path::Path, time::Duration};
 mod adf;
 mod animation_image;
 mod ansi;
+mod archive;
 mod asciimation;
 mod bgi_font;
 mod ddw;
@@ -53,6 +57,7 @@ mod xbin;
 
 pub use animation_image::{encode_animation_apng, encode_animation_gif};
 pub use ansi::{Cell, Raster, Screen};
+pub use archive::{ArchiveEntry, is_zip};
 pub use asciimation::{
     Asciimation, AsciimationFrame, parse as parse_asciimation, write as write_asciimation,
 };
@@ -76,6 +81,29 @@ const LONG_STYLED_LINE_THRESHOLD: usize = 1_000;
 
 /// The result type used by bbcat's high-level library API.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Extracts the preferred ANSI/BBS preview entry from a ZIP art pack.
+///
+/// Selection prefers `FILE_ID.ANS`, then `FILE_ID.DIZ`, then the first
+/// supported artwork entry. Stored and standard Deflate entries are supported.
+pub fn extract_archive_preview(data: &[u8]) -> Result<ArchiveEntry> {
+    archive::extract_preview(data).map_err(Error::from)
+}
+
+/// Lists supported ANSI/BBS artwork entry names in a ZIP art pack.
+///
+/// Archive metadata such as `__MACOSX`, AppleDouble `._*` entries, hidden
+/// files, `Thumbs.db`, and `desktop.ini` is omitted. Names are returned in
+/// archive order.
+pub fn list_archive_artworks(data: &[u8]) -> Result<Vec<String>> {
+    archive::list_artworks(data).map_err(Error::from)
+}
+
+/// Extracts a supported ANSI/BBS artwork entry by its exact, case-sensitive ZIP
+/// entry name. Entries omitted by [`list_archive_artworks`] cannot be extracted.
+pub fn extract_archive_artwork(data: &[u8], name: &str) -> Result<ArchiveEntry> {
+    archive::extract_artwork(data, name).map_err(Error::from)
+}
 
 /// An error produced while decoding or encoding artwork.
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -355,7 +355,10 @@
 <span class="prompt">$</span> bbcat --2x --kitty art.ans
 <span class="prompt">$</span> bbcat --sauce art.ans
 <span class="prompt">$</span> bbcat --baud 4x animation.ans
+<span class="prompt">$</span> bbcat --list-archive mist0526.zip
+<span class="prompt">$</span> bbcat 'mist0526.zip:artwork/demo.ans'
 <span class="prompt">$</span> bbcat --asciimation starwars.txt</code></pre>
+          <p>ZIP input is detected by content or a <code>.zip</code> extension. bbcat prefers <code>FILE_ID.ANS</code>, then <code>FILE_ID.DIZ</code>, then the first supported artwork. Use <code>--list-archive</code> to list supported entries and <code>archive.zip:entry/name.ans</code> to open one explicitly. macOS metadata, hidden files, <code>Thumbs.db</code>, and <code>desktop.ini</code> are omitted.</p>
           <p>Looking for files to try? Browse and download BBS art packs at <a href="https://16colo.rs/">16colo.rs</a>.</p>
         </section>
 
@@ -388,6 +391,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
 }</code></pre>
           <p>Use <code>decode</code> for content-based detection with inferred dimensions, or <code>decode_with_options</code> to supply a filename hint and width override. A decoded <code>Document</code> reports its <code>Format</code>, final <code>Screen</code>, optional <code>Sauce</code>, and optional <code>Animation</code>; <code>Document::is_animated</code> identifies detected ANSI and DarkDraw animations, while <code>Document::info</code> returns an owned <code>DocumentInfo</code> summary for application integration.</p>
           <p>Character screens expose cells, glyph and pixel dimensions, palette and font data; RIPscrip screens expose their indexed raster. Documents can be encoded directly to PNG, APNG, or GIF. Use <code>Document::encode_png_fit</code> for a bounded static preview that preserves the artwork's aspect ratio. Lower-level text and Kitty writers remain available for streaming output. ASCIImation has no format signature; decode it explicitly with <code>decode_asciimation</code>.</p>
+          <p>Use <code>is_zip</code> and <code>extract_archive_preview</code> to select and decompress the same ZIP art-pack preview used by the CLI. <code>list_archive_artworks</code> returns supported entry names, and <code>extract_archive_artwork</code> extracts one by its exact name. Pass the returned <code>ArchiveEntry</code> data and name to <code>decode_with_options</code>.</p>
           <p><a href="https://docs.rs/bbcat/">Browse the complete library API documentation on docs.rs.</a></p>
         </section>
 

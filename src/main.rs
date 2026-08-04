@@ -6,7 +6,6 @@ use std::{
     time::Duration,
 };
 
-mod archive;
 mod terminal;
 
 const DEFAULT_DELAY_MS: u64 = 25;
@@ -27,6 +26,7 @@ struct Options {
     scale: usize,
     sauce: bool,
     info: bool,
+    list_archive: bool,
     files: Vec<String>,
 }
 
@@ -50,6 +50,40 @@ fn run() -> Result<ExitCode, String> {
             return Ok(ExitCode::SUCCESS);
         }
         options.files.push("-".to_owned());
+    }
+    if options.list_archive {
+        if options.files.len() != 1 {
+            return Err("--list-archive requires exactly one ZIP archive".to_owned());
+        }
+        if options.width.is_some()
+            || options.output.is_some()
+            || options.apng.is_some()
+            || options.gif.is_some()
+            || options.asciimation
+            || options.kitty
+            || options.fit
+            || options.delay.is_some()
+            || options.baud.is_some()
+            || options.scale > 1
+            || options.sauce
+            || options.info
+        {
+            return Err(
+                "--list-archive cannot be combined with rendering or output options".to_owned(),
+            );
+        }
+        let data = read_file(&options.files[0])?;
+        if !bbcat::is_zip(&data) {
+            return Err(format!("{}: not a ZIP archive", options.files[0]));
+        }
+        let entries = bbcat::list_archive_artworks(&data)
+            .map_err(|error| format!("{}: {error}", options.files[0]))?;
+        let mut stdout = io::stdout().lock();
+        for entry in entries {
+            use std::io::Write;
+            writeln!(stdout, "{entry}").map_err(|error| format!("stdout: {error}"))?;
+        }
+        return Ok(ExitCode::SUCCESS);
     }
     let image_output = options.output.is_some() || options.apng.is_some() || options.gif.is_some();
     if [
@@ -348,23 +382,27 @@ struct Input {
 }
 
 fn read_input(path: &str) -> Result<Input, String> {
-    let data = if path == "-" {
-        let mut data = Vec::new();
-        io::stdin()
-            .read_to_end(&mut data)
-            .map_err(|error| format!("stdin: {error}"))?;
-        data
-    } else {
-        fs::read(path).map_err(|error| format!("{path}: {error}"))?
-    };
-    let zip_name = Path::new(path)
+    let (archive_path, entry_name) = split_archive_spec(path);
+    let data = read_file(archive_path)?;
+    let zip_name = Path::new(archive_path)
         .extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"));
-    if archive::is_zip(&data) || zip_name {
-        let entry = archive::extract_preview(&data).map_err(|error| format!("{path}: {error}"))?;
+    if entry_name.is_some() && !bbcat::is_zip(&data) {
+        return Err(format!("{archive_path}: not a ZIP archive"));
+    }
+    if bbcat::is_zip(&data) || zip_name {
+        let entry = if let Some(name) = entry_name {
+            if name.is_empty() {
+                return Err(format!("{archive_path}: ZIP entry name is empty"));
+            }
+            bbcat::extract_archive_artwork(&data, name)
+        } else {
+            bbcat::extract_archive_preview(&data)
+        }
+        .map_err(|error| format!("{archive_path}: {error}"))?;
         return Ok(Input {
-            label: format!("{path}:{}", entry.name),
+            label: format!("{archive_path}:{}", entry.name),
             name: entry.name,
             data: entry.data,
         });
@@ -374,6 +412,27 @@ fn read_input(path: &str) -> Result<Input, String> {
         name: path.to_owned(),
         data,
     })
+}
+
+fn read_file(path: &str) -> Result<Vec<u8>, String> {
+    if path == "-" {
+        let mut data = Vec::new();
+        io::stdin()
+            .read_to_end(&mut data)
+            .map_err(|error| format!("stdin: {error}"))?;
+        Ok(data)
+    } else {
+        fs::read(path).map_err(|error| format!("{path}: {error}"))
+    }
+}
+
+fn split_archive_spec(path: &str) -> (&str, Option<&str>) {
+    let lowercase = path.to_ascii_lowercase();
+    let Some(separator) = lowercase.find(".zip:") else {
+        return (path, None);
+    };
+    let archive_end = separator + ".zip".len();
+    (&path[..archive_end], Some(&path[archive_end + 1..]))
 }
 
 fn write_document_info<W: io::Write>(
@@ -620,6 +679,7 @@ fn parse_args() -> Result<Option<Options>, String> {
     let mut scale = 1;
     let mut sauce = false;
     let mut info = false;
+    let mut list_archive = false;
     let mut files = Vec::new();
     let mut arguments = env::args().skip(1);
     while let Some(argument) = arguments.next() {
@@ -671,6 +731,7 @@ fn parse_args() -> Result<Option<Options>, String> {
             "--2x" => scale = 2,
             "--sauce" => sauce = true,
             "--info" => info = true,
+            "--list-archive" => list_archive = true,
             "--" => {
                 files.extend(arguments);
                 break;
@@ -697,6 +758,7 @@ fn parse_args() -> Result<Option<Options>, String> {
         scale,
         sauce,
         info,
+        list_archive,
         files,
     }))
 }
@@ -764,7 +826,7 @@ Render character art, play terminal animation, or write Kitty, PNG, APNG, and GI
 Usage: bbcat [OPTIONS] [FILE]...
 
 Arguments:
-  [FILE]...                 Art files or .ZIP packs; use - for stdin
+  [FILE]...                 Art files, .ZIP packs, or ARCHIVE.zip:ENTRY; use - for stdin
 
 Options:
   -w, --width COLS          Override text width; must match fixed binary/vector widths
@@ -777,6 +839,7 @@ Options:
       --2x                  Double Kitty or image output dimensions
       --sauce               Show a SAUCE caption below the artwork
       --info                Print detected artwork information as JSON
+      --list-archive        List supported artwork entry names in one ZIP archive
   -o, --output FILE         Write a PNG file; use - for stdout
       --apng FILE           Write an animated PNG; use - for stdout
       --gif FILE            Write an animated GIF; use - for stdout
@@ -790,6 +853,20 @@ Options:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn splits_explicit_zip_entry_specs() {
+        assert_eq!(
+            split_archive_spec("pack.zip:art/demo.ans"),
+            ("pack.zip", Some("art/demo.ans"))
+        );
+        assert_eq!(
+            split_archive_spec("PACK.ZIP:FILE_ID.ANS"),
+            ("PACK.ZIP", Some("FILE_ID.ANS"))
+        );
+        assert_eq!(split_archive_spec("art.ans"), ("art.ans", None));
+        assert_eq!(split_archive_spec("odd:name.ans"), ("odd:name.ans", None));
+    }
 
     #[test]
     fn validates_slow_mode_delays() {

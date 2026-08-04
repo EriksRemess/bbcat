@@ -2,6 +2,58 @@ use std::{error::Error as StdError, path::Path, time::Duration};
 
 use bbcat::{DecodeOptions, Format};
 
+fn stored_zip(name: &str, data: &[u8]) -> Vec<u8> {
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = 0xffff_ffff_u32;
+        for &byte in data {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                crc = (crc >> 1) ^ (0xedb8_8320 & 0_u32.wrapping_sub(crc & 1));
+            }
+        }
+        !crc
+    }
+
+    let mut zip = Vec::new();
+    let crc = crc32(data);
+    zip.extend_from_slice(b"PK\x03\x04");
+    zip.extend_from_slice(&20_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&[0; 4]);
+    zip.extend_from_slice(&crc.to_le_bytes());
+    zip.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    zip.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    zip.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(name.as_bytes());
+    zip.extend_from_slice(data);
+    let central_offset = zip.len();
+    zip.extend_from_slice(b"PK\x01\x02");
+    zip.extend_from_slice(&20_u16.to_le_bytes());
+    zip.extend_from_slice(&20_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip.extend_from_slice(&[0; 4]);
+    zip.extend_from_slice(&crc.to_le_bytes());
+    zip.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    zip.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    zip.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    zip.extend_from_slice(&[0; 8]);
+    zip.extend_from_slice(&0_u32.to_le_bytes());
+    zip.extend_from_slice(&0_u32.to_le_bytes());
+    zip.extend_from_slice(name.as_bytes());
+    let central_size = zip.len() - central_offset;
+    zip.extend_from_slice(b"PK\x05\x06");
+    zip.extend_from_slice(&[0; 4]);
+    zip.extend_from_slice(&1_u16.to_le_bytes());
+    zip.extend_from_slice(&1_u16.to_le_bytes());
+    zip.extend_from_slice(&(central_size as u32).to_le_bytes());
+    zip.extend_from_slice(&(central_offset as u32).to_le_bytes());
+    zip.extend_from_slice(&0_u16.to_le_bytes());
+    zip
+}
+
 #[test]
 fn decodes_and_encodes_through_the_public_api() -> Result<(), Box<dyn StdError>> {
     let document = bbcat::decode_with_options(
@@ -40,6 +92,27 @@ fn decodes_and_encodes_through_the_public_api() -> Result<(), Box<dyn StdError>>
 
     let png = document.encode_png(1)?;
     assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
+    Ok(())
+}
+
+#[test]
+fn exposes_zip_preview_detection_and_errors() {
+    assert!(bbcat::is_zip(b"PK\x05\x06"));
+    let error = bbcat::extract_archive_preview(b"PK\x05\x06").unwrap_err();
+    assert!(error.to_string().contains("end record"));
+}
+
+#[test]
+fn lists_and_extracts_zip_artwork_through_the_public_api() -> Result<(), Box<dyn StdError>> {
+    let archive = stored_zip("gallery/demo.ans", b"demo");
+
+    assert_eq!(
+        bbcat::list_archive_artworks(&archive)?,
+        ["gallery/demo.ans"]
+    );
+    let entry = bbcat::extract_archive_artwork(&archive, "gallery/demo.ans")?;
+    assert_eq!(entry.name, "gallery/demo.ans");
+    assert_eq!(entry.data, b"demo");
     Ok(())
 }
 
