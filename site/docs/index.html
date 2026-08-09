@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Documentation for the bbcat native macOS app, Rust library, terminal viewer, and image converter for ANSI and BBS art.">
   <link rel="canonical" href="https://bbcat.dev/docs/">
+  <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">
   <title>Documentation — bbcat</title>
   <style>
     :root {
@@ -69,7 +71,15 @@
       text-decoration: none;
     }
 
-    .brand::before { content: "❯"; }
+    .brand-mark {
+      display: block;
+      width: 2rem;
+      height: 2rem;
+      flex: none;
+      shape-rendering: crispEdges;
+    }
+
+    .brand > span { transform: translateY(1px); }
 
     .version {
       display: flex;
@@ -81,9 +91,9 @@
       color: var(--green);
       background: rgba(102, 226, 138, 0.06);
       font-size: 0.75rem;
+      transform: translateY(1px);
     }
 
-    .brand::before,
     .brand > span,
     .version > span {
       line-height: 1;
@@ -271,7 +281,15 @@
   <div class="shell">
     <header>
       <div class="header-brand">
-        <a class="brand" href="/"><span>bbcat</span></a>
+        <a class="brand" href="/">
+          <svg class="brand-mark" viewBox="0 0 32 32" width="32" height="32" aria-hidden="true" focusable="false">
+            <path fill="#89b4fa" d="M12 4h8v4h-8zM8 8h4v4H8zM4 12h4v8H4zM8 20h4v4H8zM12 24h8v4h-8z"/>
+            <path fill="#94e2d5" d="M12 8h8v4h-8zM8 12h4v8H8zM20 12h4v8h-4zM12 20h8v4h-8z"/>
+            <path fill="#cba6f7" d="M20 8h4v4h-4zM24 12h4v8h-4zM20 20h4v4h-4z"/>
+            <path fill="#f9e2af" d="M14 14h4v4h-4z"/>
+          </svg>
+          <span>bbcat</span>
+        </a>
         <span class="version"><span>v<!-- BBCAT_VERSION -->0.5.0</span></span>
       </div>
       <nav aria-label="Primary navigation">

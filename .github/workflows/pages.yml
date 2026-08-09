@@ -6,7 +6,9 @@ on:
     paths:
       - .github/workflows/pages.yml
       - Cargo.toml
+      - site/favicon.ico
       - site/favicon.svg
+      - site/apple-touch-icon.png
       - site/index.html
       - site/docs/**
       - site/robots.txt
@@ -47,7 +49,9 @@ jobs:
           sed "s|v<!-- BBCAT_VERSION -->[^<]*|v<!-- BBCAT_VERSION -->$version|" site/index.html > _site/index.html
           mkdir _site/docs
           sed "s|v<!-- BBCAT_VERSION -->[^<]*|v<!-- BBCAT_VERSION -->$version|" site/docs/index.html > _site/docs/index.html
+          cp site/favicon.ico _site/favicon.ico
           cp site/favicon.svg _site/favicon.svg
+          cp site/apple-touch-icon.png _site/apple-touch-icon.png
           cp site/robots.txt _site/robots.txt
 
       - name: Upload GitHub Pages artifact
