@@ -170,6 +170,7 @@ pub(crate) struct ParsedFrame {
 enum EscapeEvent {
     None,
     Home,
+    TopPosition,
     ClearDisplay,
     Erase,
 }
@@ -258,7 +259,10 @@ pub(crate) fn parse_with_animation(
         match bytes[index] {
             0x1b => {
                 let event = escape_event(&bytes[index..]);
-                if matches!(event, EscapeEvent::Home | EscapeEvent::ClearDisplay) && dirty {
+                let completes_redraw =
+                    matches!(event, EscapeEvent::Home | EscapeEvent::ClearDisplay)
+                        || matches!(event, EscapeEvent::TopPosition) && parser.y >= 19;
+                if completes_redraw && dirty {
                     let screen = parser.snapshot(declared_height)?;
                     stored_frame_cells = stored_frame_cells
                         .checked_add(screen.cells.len())
@@ -280,7 +284,7 @@ pub(crate) fn parse_with_animation(
                         dirty = true;
                         clear_on_finish = false;
                     }
-                    EscapeEvent::None | EscapeEvent::Home => {}
+                    EscapeEvent::None | EscapeEvent::Home | EscapeEvent::TopPosition => {}
                     EscapeEvent::ClearDisplay => clear_on_finish = true,
                 }
             }
@@ -662,6 +666,9 @@ fn escape_event(bytes: &[u8]) -> EscapeEvent {
                 && parameters.get(1).copied().unwrap_or(1).max(1) == 1 =>
         {
             EscapeEvent::Home
+        }
+        b'H' | b'f' if parameters.first().copied().unwrap_or(1).max(1) <= 4 => {
+            EscapeEvent::TopPosition
         }
         b'J' if matches!(parameters.first().copied().unwrap_or(0), 2 | 3) => {
             EscapeEvent::ClearDisplay

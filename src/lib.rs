@@ -680,6 +680,23 @@ mod tests {
     }
 
     #[test]
+    fn ansimation_uses_top_row_wraps_as_frame_boundaries() {
+        let data = b"\x1b[24;1HA\x1b[1;5HB\x1b[24;1HC\x1b[1;5HD";
+        let document = render(data, Some(80)).unwrap();
+
+        let animation = document.animation.as_ref().unwrap();
+        assert_eq!(animation.frames.len(), 3);
+        assert_eq!(
+            animation.frames[0].screen.cells[23 * 80].character,
+            b'A'.into()
+        );
+        assert_eq!(
+            animation.frames[1].screen.cells[23 * 80].character,
+            b'C'.into()
+        );
+    }
+
+    #[test]
     fn a_single_home_is_not_misclassified_as_animation() {
         let document = render(b"\x1b[HA", Some(1)).unwrap();
         assert!(!document.is_animated());
