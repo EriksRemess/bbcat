@@ -540,6 +540,9 @@ fn write_screen_inner<W: Write>(
 }
 
 fn validate_text_screen(screen: &Screen) -> io::Result<()> {
+    screen
+        .validate()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     if screen.raster.is_some() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,

@@ -93,6 +93,7 @@ pub fn encode_screen_fit(
     maximum_width: usize,
     maximum_height: usize,
 ) -> Result<Vec<u8>, String> {
+    screen.validate()?;
     if maximum_width == 0 || maximum_height == 0 {
         return Err("PNG fit dimensions must be non-zero".to_owned());
     }
@@ -117,6 +118,7 @@ pub(crate) fn encode_screen_scaled_with_depth(
     scale: usize,
     force_8_bit: bool,
 ) -> Result<Vec<u8>, String> {
+    screen.validate()?;
     if scale == 0 {
         return Err("PNG scale must be non-zero".to_owned());
     }

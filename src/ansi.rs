@@ -49,6 +49,31 @@ pub struct Screen {
 }
 
 impl Screen {
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.glyph_width == 0 || self.glyph_height == 0 {
+            return Err("screen glyph dimensions must be non-zero".to_owned());
+        }
+        if let Some(raster) = &self.raster {
+            let expected = raster
+                .width
+                .checked_mul(raster.height)
+                .ok_or_else(|| "raster pixel count overflow".to_owned())?;
+            if raster.width == 0 || raster.height == 0 || raster.pixels.len() != expected {
+                return Err("raster pixel buffer does not match its dimensions".to_owned());
+            }
+            return Ok(());
+        }
+
+        let expected = self
+            .width
+            .checked_mul(self.height)
+            .ok_or_else(|| "screen cell count overflow".to_owned())?;
+        if self.width == 0 || self.height == 0 || self.cells.len() != expected {
+            return Err("screen cell buffer does not match its dimensions".to_owned());
+        }
+        Ok(())
+    }
+
     /// Returns the cell at zero-based `column` and `row` coordinates.
     pub fn cell(&self, column: usize, row: usize) -> Option<&Cell> {
         let index = row.checked_mul(self.width)?.checked_add(column)?;

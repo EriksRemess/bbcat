@@ -498,6 +498,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
             <li><strong>XBin (<code>.XB</code>)</strong> with embedded palettes, 8- or 16-color backgrounds, embedded fonts up to 32 pixels high, 256- and 512-character modes, and XBin RLE.</li>
             <li><strong>ArtWorx Data Format (<code>.ADF</code>)</strong> version 1 with its embedded palette and 8×16 font. ADF is fixed at 80 columns.</li>
             <li><strong>RIPscrip (<code>.RIP</code>)</strong> level-one vector graphics, including bitmap and proportional BGI stroke fonts. RIPscrip is rendered to a 640×350 canvas and requires Kitty or PNG output.</li>
+            <li><strong>ZIP art packs</strong> using stored or Deflate compression. The CLI selects <code>FILE_ID.ANS</code>, <code>FILE_ID.DIZ</code>, or the first supported artwork as a preview, and can list or open another supported entry explicitly.</li>
           </ul>
           <p>SAUCE metadata supplies content length, canvas dimensions, iCE color mode, 8- or 9-pixel VGA letter spacing, and named IBM VGA50, Amiga MicroKnight, Amiga Topaz 2+, and Empathy bitmap fonts when present. Kitty and image output reproduce exact glyph shapes; UTF-8 output remains a terminal-font approximation.</p>
           <p>Common raster images such as PNG, GIF, JPEG, WebP, TIFF, ICO, BMP, and QOI are rejected by content with an explanatory error. Malformed, truncated, oversized, or unsupported BBS inputs also produce a non-zero exit status and a filename-scoped error. With multiple inputs, bbcat reports a rejected file and continues with the rest.</p>
@@ -522,6 +523,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
                 <tr><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Write an indexed-color PNG. Use <code>-</code> for standard output; requires exactly one input.</td></tr>
                 <tr><td><code>--apng FILE</code></td><td>Write a looping indexed-color animated PNG from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
                 <tr><td><code>--gif FILE</code></td><td>Write a looping indexed-color animated GIF from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
+                <tr><td><code>--list-archive</code></td><td>List supported artwork entry names in exactly one ZIP archive. Cannot be combined with rendering or output options.</td></tr>
                 <tr><td><code>--asciimation</code></td><td>Interpret one explicit asciimation.co.nz-style stream containing a duration plus thirteen ASCII rows per frame. Playback requires terminal stdout; combine with <code>--info</code> to inspect it as JSON instead. Cannot be combined with Kitty/fit, image output, width, scaling, speed, or SAUCE options.</td></tr>
                 <tr><td><code>-h</code>, <code>--help</code></td><td>Print command help.</td></tr>
                 <tr><td><code>-V</code>, <code>--version</code></td><td>Print the bbcat version.</td></tr>

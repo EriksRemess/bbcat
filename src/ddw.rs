@@ -9,6 +9,9 @@ use std::{collections::BTreeMap, time::Duration};
 
 use crate::{Cell, Sauce, Screen, ansi::MAX_CELLS, text::CP437};
 
+const MAX_DDW_EXPANSION_ITEMS: usize = 100_000;
+const MAX_DDW_NESTING: usize = 128;
+
 pub(crate) struct ParsedDdw {
     pub screen: Screen,
     pub sauce: Option<Sauce>,
@@ -22,8 +25,15 @@ pub(crate) struct ParsedFrame {
 }
 
 pub(crate) fn is_ddw(data: &[u8]) -> bool {
-    data.windows(b"\"duration_ms\"".len())
-        .any(|window| window == b"\"duration_ms\"")
+    let Ok(text) = std::str::from_utf8(data) else {
+        return false;
+    };
+    let mut records = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    let json_lines = records.all(|line| line.starts_with('{') && line.ends_with('}'));
+    json_lines
+        && data
+            .windows(b"\"duration_ms\"".len())
+            .any(|window| window == b"\"duration_ms\"")
         && data
             .windows(b"\"frame\"".len())
             .any(|window| window == b"\"frame\"")
@@ -81,6 +91,12 @@ pub(crate) fn parse(data: &[u8], width_override: Option<usize>) -> Result<Parsed
         if !ids.insert(&frame.id) {
             return Err(format!("DDW repeats frame id: {}", frame.id));
         }
+    }
+    let stored_frame_cells = cell_count
+        .checked_mul(frames.len())
+        .ok_or_else(animation_too_large)?;
+    if stored_frame_cells > MAX_CELLS {
+        return Err(animation_too_large());
     }
 
     let sauce = Sauce::from_text_metadata(
@@ -483,12 +499,21 @@ fn expand_elements(items: &[Item]) -> Result<Vec<Element>, String> {
         }
     }
 
-    let mut elements = Vec::new();
-    let mut group_stack = Vec::new();
+    let mut state = ExpansionState {
+        elements: Vec::new(),
+        group_stack: Vec::new(),
+        expanded_items: 0,
+    };
     for item in items {
-        expand_item(item, (0, 0), &[], &groups, &mut elements, &mut group_stack)?;
+        expand_item(item, (0, 0), &[], &groups, &mut state, 0)?;
     }
-    Ok(elements)
+    Ok(state.elements)
+}
+
+struct ExpansionState {
+    elements: Vec<Element>,
+    group_stack: Vec<String>,
+    expanded_items: usize,
 }
 
 fn expand_item(
@@ -496,9 +521,15 @@ fn expand_item(
     offset: (usize, usize),
     inherited_frames: &[String],
     groups: &BTreeMap<&str, &Item>,
-    elements: &mut Vec<Element>,
-    group_stack: &mut Vec<String>,
+    state: &mut ExpansionState,
+    depth: usize,
 ) -> Result<(), String> {
+    consume_expansion_budget(&mut state.expanded_items)?;
+    if depth > MAX_DDW_NESTING {
+        return Err(format!(
+            "DDW group nesting exceeds the {MAX_DDW_NESTING} level safety limit"
+        ));
+    }
     match item.kind.as_deref() {
         Some("group") => Ok(()),
         Some("ref") => {
@@ -513,7 +544,7 @@ fn expand_item(
                     item.line
                 )
             })?;
-            if group_stack.iter().any(|id| id == reference) {
+            if state.group_stack.iter().any(|id| id == reference) {
                 return Err(format!("DDW group reference cycle includes: {reference}"));
             }
             let position = positioned(item, offset)?;
@@ -523,16 +554,16 @@ fn expand_item(
                 item.line,
             )?;
             let frames = append_frame(inherited_frames, item.frame.as_deref());
-            group_stack.push(reference.to_owned());
+            state.group_stack.push(reference.to_owned());
             for row in &group.rows {
-                expand_item(row, group_offset, &frames, groups, elements, group_stack)?;
+                expand_item(row, group_offset, &frames, groups, state, depth + 1)?;
             }
-            group_stack.pop();
+            state.group_stack.pop();
             Ok(())
         }
         _ if item.is_element() && !item.text.is_empty() => {
             let (x, y) = positioned(item, offset)?;
-            elements.push(Element {
+            state.elements.push(Element {
                 line: item.line,
                 x,
                 y,
@@ -544,6 +575,24 @@ fn expand_item(
         }
         _ => Ok(()),
     }
+}
+
+fn consume_expansion_budget(expanded_items: &mut usize) -> Result<(), String> {
+    *expanded_items = expanded_items
+        .checked_add(1)
+        .ok_or_else(expansion_too_large)?;
+    if *expanded_items > MAX_DDW_EXPANSION_ITEMS {
+        return Err(expansion_too_large());
+    }
+    Ok(())
+}
+
+fn expansion_too_large() -> String {
+    format!("DDW expansion exceeds the {MAX_DDW_EXPANSION_ITEMS} item safety limit")
+}
+
+fn animation_too_large() -> String {
+    format!("DDW animation exceeds the {MAX_CELLS} stored-cell safety limit")
 }
 
 fn positioned(item: &Item, offset: (usize, usize)) -> Result<(usize, usize), String> {
@@ -617,7 +666,7 @@ impl<'a> JsonReader<'a> {
     }
 
     fn object(mut self) -> Result<Vec<(String, Value)>, String> {
-        let values = self.parse_object()?;
+        let values = self.parse_object(0)?;
         self.whitespace();
         if self.index != self.input.len() {
             return Err("trailing content after JSON object".to_owned());
@@ -625,7 +674,8 @@ impl<'a> JsonReader<'a> {
         Ok(values)
     }
 
-    fn parse_object(&mut self) -> Result<Vec<(String, Value)>, String> {
+    fn parse_object(&mut self, depth: usize) -> Result<Vec<(String, Value)>, String> {
+        self.check_depth(depth)?;
         self.expect(b'{')?;
         let mut values = Vec::new();
         loop {
@@ -636,7 +686,7 @@ impl<'a> JsonReader<'a> {
             let key = self.parse_string()?;
             self.whitespace();
             self.expect(b':')?;
-            let value = self.parse_value()?;
+            let value = self.parse_value(depth + 1)?;
             values.push((key, value));
             self.whitespace();
             if self.consume(b'}') {
@@ -646,7 +696,8 @@ impl<'a> JsonReader<'a> {
         }
     }
 
-    fn parse_array(&mut self) -> Result<Vec<Value>, String> {
+    fn parse_array(&mut self, depth: usize) -> Result<Vec<Value>, String> {
+        self.check_depth(depth)?;
         self.expect(b'[')?;
         let mut values = Vec::new();
         loop {
@@ -654,7 +705,7 @@ impl<'a> JsonReader<'a> {
             if self.consume(b']') {
                 return Ok(values);
             }
-            values.push(self.parse_value()?);
+            values.push(self.parse_value(depth + 1)?);
             self.whitespace();
             if self.consume(b']') {
                 return Ok(values);
@@ -663,12 +714,13 @@ impl<'a> JsonReader<'a> {
         }
     }
 
-    fn parse_value(&mut self) -> Result<Value, String> {
+    fn parse_value(&mut self, depth: usize) -> Result<Value, String> {
+        self.check_depth(depth)?;
         self.whitespace();
         match self.peek().ok_or_else(|| "missing JSON value".to_owned())? {
             b'"' => Ok(Value::String(self.parse_string()?)),
-            b'{' => self.parse_object().map(Value::Object),
-            b'[' => self.parse_array().map(Value::Array),
+            b'{' => self.parse_object(depth).map(Value::Object),
+            b'[' => self.parse_array(depth).map(Value::Array),
             b'n' => {
                 self.literal(b"null")?;
                 Ok(Value::Null)
@@ -683,6 +735,16 @@ impl<'a> JsonReader<'a> {
             }
             b'-' | b'0'..=b'9' => self.parse_number().map(Value::Number),
             _ => Err("invalid JSON value".to_owned()),
+        }
+    }
+
+    fn check_depth(&self, depth: usize) -> Result<(), String> {
+        if depth > MAX_DDW_NESTING {
+            Err(format!(
+                "JSON nesting exceeds the {MAX_DDW_NESTING} level safety limit"
+            ))
+        } else {
+            Ok(())
         }
     }
 
@@ -892,6 +954,77 @@ mod tests {
                 .contains("38;5;247")
         );
         assert_eq!(parsed.screen.cells[6].foreground, 247);
+    }
+
+    #[test]
+    fn detection_requires_json_lines() {
+        assert!(!is_ddw(br#"This text mentions "duration_ms" and "frame"."#));
+        assert!(is_ddw(SAMPLE.as_bytes()));
+    }
+
+    #[test]
+    fn rejects_animations_above_the_total_cell_budget() {
+        let sample = concat!(
+            r#"{"type":"Dimensions","text":"5000001x1","frame":"SAUCE_record"}"#,
+            "\n",
+            r#"{"id":"1","type":"frame","duration_ms":100}"#,
+            "\n",
+            r#"{"id":"2","type":"frame","duration_ms":100}"#,
+            "\n",
+            r#"{"x":0,"y":0,"text":"X","frame":"1 2"}"#,
+        );
+        assert!(
+            parse(sample.as_bytes(), None)
+                .err()
+                .unwrap()
+                .contains("stored-cell safety limit")
+        );
+    }
+
+    #[test]
+    fn rejects_excessive_json_and_group_nesting() {
+        let nested_json = format!(
+            "{{\"value\":{}0{}}}",
+            "[".repeat(MAX_DDW_NESTING + 1),
+            "]".repeat(MAX_DDW_NESTING + 1)
+        );
+        assert!(
+            JsonReader::new(nested_json.as_bytes())
+                .object()
+                .err()
+                .unwrap()
+                .contains("JSON nesting")
+        );
+
+        let mut groups =
+            String::from(r#"{"id":"g0","type":"group","rows":[{"x":0,"y":0,"text":"X"}]}"#);
+        for depth in 1..=MAX_DDW_NESTING + 1 {
+            groups.push('\n');
+            groups.push_str(&format!(
+                r#"{{"id":"g{depth}","type":"group","rows":[{{"x":0,"y":0,"type":"ref","ref":"g{}"}}]}}"#,
+                depth - 1
+            ));
+        }
+        groups.push_str(&format!(
+            "\n{{\"x\":0,\"y\":0,\"type\":\"ref\",\"ref\":\"g{}\"}}",
+            MAX_DDW_NESTING + 1
+        ));
+        assert!(
+            parse(groups.as_bytes(), None)
+                .err()
+                .unwrap()
+                .contains("group nesting")
+        );
+    }
+
+    #[test]
+    fn enforces_the_expansion_item_budget() {
+        let mut expanded_items = MAX_DDW_EXPANSION_ITEMS;
+        assert!(
+            consume_expansion_budget(&mut expanded_items)
+                .unwrap_err()
+                .contains("item safety limit")
+        );
     }
 
     #[test]

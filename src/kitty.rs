@@ -197,6 +197,9 @@ fn write_screen_inner<W: Write>(
     scale: usize,
     width_mode: WidthMode,
 ) -> io::Result<()> {
+    screen
+        .validate()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     if scale == 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,

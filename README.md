@@ -346,6 +346,7 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 | `-o FILE`, `--output FILE` | Write an indexed-color PNG. Use `-` for standard output; requires exactly one input. |
 | `--apng FILE` | Write a looping indexed-color animated PNG from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
 | `--gif FILE` | Write a looping indexed-color animated GIF from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
+| `--list-archive` | List supported artwork entry names in exactly one ZIP archive. Cannot be combined with rendering or output options. |
 | `--asciimation` | Interpret one explicit asciimation.co.nz-style text stream: a duration plus thirteen ASCII rows per frame. Playback requires terminal stdout; combine with `--info` to inspect it as JSON instead. Cannot be combined with Kitty/fit, image output, width, scaling, speed, or SAUCE options. |
 | `-h`, `--help` | Print command help. |
 | `-V`, `--version` | Print the bbcat version. |

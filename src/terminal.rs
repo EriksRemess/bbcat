@@ -13,6 +13,12 @@ mod unix {
     const SIZE_QUERY: &[u8] = b"\x1b[18t";
     const TIMEOUT: Duration = Duration::from_millis(750);
     const TCSANOW: c_int = 0;
+    const SIGINT: c_int = 2;
+
+    #[cfg(target_os = "linux")]
+    const VINTR: usize = 0;
+    #[cfg(target_os = "macos")]
+    const VINTR: usize = 8;
 
     #[cfg(target_os = "linux")]
     const ICANON: u32 = 0x0000_0002;
@@ -23,6 +29,11 @@ mod unix {
     const ECHO: u32 = 0x0000_0008;
     #[cfg(target_os = "macos")]
     const ECHO: u64 = 0x0000_0008;
+
+    #[cfg(target_os = "linux")]
+    const ISIG: u32 = 0x0000_0001;
+    #[cfg(target_os = "macos")]
+    const ISIG: u64 = 0x0000_0080;
 
     #[cfg(target_os = "linux")]
     const VTIME: usize = 5;
@@ -77,7 +88,10 @@ mod unix {
     unsafe extern "C" {
         fn tcgetattr(fd: c_int, termios: *mut Termios) -> c_int;
         fn tcsetattr(fd: c_int, action: c_int, termios: *const Termios) -> c_int;
+        fn tcgetpgrp(fd: c_int) -> c_int;
         fn ioctl(fd: c_int, request: std::ffi::c_ulong, value: *mut Winsize) -> c_int;
+        fn kill(process: c_int, signal: c_int) -> c_int;
+        fn raise(signal: c_int) -> c_int;
     }
 
     struct RestoreTerminal {
@@ -108,10 +122,11 @@ mod unix {
         let fd = tty.as_raw_fd();
         let original = get_termios(fd)
             .map_err(|error| format!("cannot inspect controlling terminal: {error}"))?;
-        let _restore = RestoreTerminal { fd, original };
+        let restore = RestoreTerminal { fd, original };
+        let interrupt = original.control_characters[VINTR];
 
         let mut probe_mode = original;
-        probe_mode.local_flags &= !(ICANON | ECHO);
+        probe_mode.local_flags &= !(ICANON | ECHO | ISIG);
         probe_mode.control_characters[VMIN] = 0;
         probe_mode.control_characters[VTIME] = 1;
         set_termios(fd, &probe_mode)
@@ -128,6 +143,10 @@ mod unix {
             match tty.read(&mut buffer) {
                 Ok(0) => {}
                 Ok(length) => {
+                    if contains_interrupt(&buffer[..length], interrupt) {
+                        restore_and_interrupt_foreground(restore);
+                        return Err("terminal protocol probe interrupted".to_owned());
+                    }
                     response.extend_from_slice(&buffer[..length]);
                     if let Some(supported) = probe_result(&response) {
                         return Ok(supported);
@@ -172,10 +191,11 @@ mod unix {
             .ok()?;
         let fd = tty.as_raw_fd();
         let original = get_termios(fd).ok()?;
-        let _restore = RestoreTerminal { fd, original };
+        let restore = RestoreTerminal { fd, original };
+        let interrupt = original.control_characters[VINTR];
 
         let mut probe_mode = original;
-        probe_mode.local_flags &= !(ICANON | ECHO);
+        probe_mode.local_flags &= !(ICANON | ECHO | ISIG);
         probe_mode.control_characters[VMIN] = 0;
         probe_mode.control_characters[VTIME] = 1;
         set_termios(fd, &probe_mode).ok()?;
@@ -190,6 +210,10 @@ mod unix {
             match tty.read(&mut buffer) {
                 Ok(0) => {}
                 Ok(length) => {
+                    if contains_interrupt(&buffer[..length], interrupt) {
+                        restore_and_interrupt_foreground(restore);
+                        return None;
+                    }
                     response.extend_from_slice(&buffer[..length]);
                     if let Some(columns) = size_query_result(&response) {
                         return Some(columns);
@@ -269,6 +293,25 @@ mod unix {
             .any(|window| window == needle)
     }
 
+    fn contains_interrupt(input: &[u8], interrupt: u8) -> bool {
+        !matches!(interrupt, 0 | u8::MAX) && input.contains(&interrupt)
+    }
+
+    fn restore_and_interrupt_foreground(restore: RestoreTerminal) {
+        let fd = restore.fd;
+        drop(restore);
+        // The probe temporarily disables ISIG so the interrupt byte can be
+        // observed and the terminal restored before normal SIGINT handling.
+        // Reproduce terminal-driver semantics by interrupting the complete
+        // foreground job rather than only this process.
+        unsafe {
+            let foreground_group = tcgetpgrp(fd);
+            if foreground_group <= 0 || kill(-foreground_group, SIGINT) == -1 {
+                raise(SIGINT);
+            }
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -300,6 +343,13 @@ mod unix {
             assert_eq!(size_query_result(b"\x1b[8;0;120t"), None);
             assert_eq!(size_query_result(b"\x1b[8;42;0t"), None);
             assert_eq!(size_query_result(b"\x1b[8;x;120t"), None);
+        }
+
+        #[test]
+        fn recognizes_the_configured_interrupt_byte() {
+            assert!(contains_interrupt(b"reply\x03", 3));
+            assert!(!contains_interrupt(b"reply", 3));
+            assert!(!contains_interrupt(b"reply\0", 0));
         }
     }
 }

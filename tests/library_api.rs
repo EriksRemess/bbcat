@@ -155,6 +155,21 @@ fn fits_png_output_within_a_pixel_bounding_box() -> Result<(), Box<dyn StdError>
 }
 
 #[test]
+fn rejects_inconsistent_public_screen_dimensions_without_panicking() {
+    let mut document = bbcat::decode(b"A").unwrap();
+    document.screen.width = 2;
+
+    let error = document.encode_png(1).unwrap_err();
+    assert!(error.message().contains("cell buffer"));
+
+    document.screen.width = 1;
+    document.screen.height = 0;
+    let error = bbcat::write_screen_fit(&mut Vec::new(), &document.screen, 24, 80).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(error.to_string().contains("cell buffer"));
+}
+
+#[test]
 fn reports_the_detected_format() {
     let error = bbcat::decode(b"XBIN\x1a").unwrap_err();
     assert!(error.message().contains("truncated XBin header"));
