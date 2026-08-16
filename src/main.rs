@@ -8,7 +8,8 @@ use std::{
 
 mod terminal;
 
-const DEFAULT_DELAY_MS: u64 = 25;
+const DEFAULT_SLOW_DELAY_MS: u64 = 35;
+const DEFAULT_BAUD_ROW_DELAY_MS: u64 = 25;
 const MAX_DELAY_MS: u64 = 10_000;
 const SUGGESTED_ANIMATION_RATES: [u64; 7] = [2_400, 9_600, 14_400, 28_800, 38_400, 57_600, 115_200];
 
@@ -720,7 +721,7 @@ fn parse_args() -> Result<Option<Options>, String> {
             "--kitty" => kitty = true,
             "--fit" => fit = true,
             "--slow" => {
-                delay.get_or_insert(Duration::from_millis(DEFAULT_DELAY_MS));
+                delay.get_or_insert(Duration::from_millis(DEFAULT_SLOW_DELAY_MS));
             }
             "--delay" => {
                 delay = Some(Duration::from_millis(milliseconds(
@@ -803,9 +804,10 @@ fn baud_rate(option: &str, value: Option<String>) -> Result<u64, String> {
 }
 
 fn baud_row_delay(baud: u64) -> Duration {
-    let nanoseconds =
-        u128::from(DEFAULT_DELAY_MS) * 1_000_000 * u128::from(bbcat::DEFAULT_ANIMATION_BAUD)
-            / u128::from(baud);
+    let nanoseconds = u128::from(DEFAULT_BAUD_ROW_DELAY_MS)
+        * 1_000_000
+        * u128::from(bbcat::DEFAULT_ANIMATION_BAUD)
+        / u128::from(baud);
     Duration::from_nanos(u64::try_from(nanoseconds).unwrap_or(u64::MAX))
 }
 
@@ -834,7 +836,7 @@ Options:
       --chunk-lines ROWS    Kitty image height (default: LINES - 1, or 24)
       --kitty               Use Kitty graphics instead of UTF-8 text
       --fit                 Scale complete Kitty art to terminal width instead of cropping
-      --slow                Reveal character art one row at a time (25 ms/row)
+      --slow                Reveal character art one row at a time (35 ms/row)
       --delay MS            Set the slow-mode row delay (1..=10000)
       --baud RATE           Animation speed or static row-reveal speed: positive RATE or Nx (try --baud for suggestions; 1X is 25 ms/row)
       --2x                  Double Kitty or image output dimensions
@@ -915,9 +917,10 @@ mod tests {
     fn baud_scales_the_static_row_delay_from_1x() {
         assert_eq!(
             baud_row_delay(bbcat::DEFAULT_ANIMATION_BAUD),
-            Duration::from_millis(DEFAULT_DELAY_MS)
+            Duration::from_millis(DEFAULT_BAUD_ROW_DELAY_MS)
         );
         assert_eq!(baud_row_delay(57_600), Duration::from_millis(50));
+        assert_eq!(baud_row_delay(30_000), Duration::from_millis(96));
         assert_eq!(baud_row_delay(230_400), Duration::from_micros(12_500));
     }
 

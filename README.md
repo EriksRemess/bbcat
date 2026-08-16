@@ -245,7 +245,7 @@ bbcat --delay 50 art.ans
 bbcat --kitty --slow art.ans
 ```
 
-`--slow` reveals one character row at a time with a 25 millisecond delay.
+`--slow` reveals one character row at a time with a 35 millisecond delay.
 `--delay MS` enables slow mode with a custom delay from 1 through 10,000
 milliseconds. Both UTF-8 and Kitty modes flush each row before waiting; Kitty
 mode automatically uses one image strip per character row.
@@ -346,9 +346,9 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 | `--chunk-lines ROWS` | Set the number of character rows in each Kitty image strip, from 1 through 256. The default is `$LINES - 1`, clamped to 1 through 64, or 24 when `$LINES` is unavailable. |
 | `--kitty` | Use Kitty graphics instead of colored UTF-8. |
 | `--fit` | Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row. |
-| `--slow` | Reveal one character row at a time using a 25 ms delay. |
+| `--slow` | Reveal one character row at a time using a 35 ms delay. |
 | `--delay MS` | Enable slow mode with a delay from 1 through 10,000 ms per row. |
-| `--baud RATE` | Play ANSI animation by source-byte timing or DDW animation by native frame timing, set static ANSI/text row-reveal speed, or control APNG/GIF frame timing. `1X` is the same 25 ms/row as `--slow`; rates scale it proportionally. Run `--baud` alone for familiar suggested values. |
+| `--baud RATE` | Play ANSI animation by source-byte timing or DDW animation by native frame timing, set static ANSI/text row-reveal speed, or control APNG/GIF frame timing. `1X` is 25 ms/row; rates scale it proportionally. Run `--baud` alone for familiar suggested values. |
 | `--2x` | Double Kitty or image output width and height. Requires `--kitty`, `--output FILE`, `--apng FILE`, or `--gif FILE`. |
 | `--sauce` | Show the available SAUCE title, author, group, and creation date below the artwork. |
 | `--info` | Print detected format, dimensions, animation frames, rendering capabilities, and SAUCE metadata as JSON. Requires exactly one input and cannot be combined with rendering or output options. |

@@ -453,7 +453,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
 <span class="prompt">$</span> bbcat --baud 2x animation.ans
 <span class="prompt">$</span> bbcat --baud 4x animation.ans</code></pre>
           <p><code>2400</code>, <code>9600</code>, <code>14400</code>, <code>28800</code>, <code>38400</code>, <code>57600</code>, <code>115200</code> (<code>1X</code>), <code>2X</code> (230400), and <code>4X</code> (460800) are suggested familiar rates. Run <code>bbcat --baud</code> to print the list. Any positive numeric rate is accepted, as is an <code>Nx</code> multiplier of 115200.</p>
-          <p>Animated playback uses each frame's source byte count to determine how long it remains visible. DDW uses its source-defined per-frame duration at <code>1X</code>, scaled by the selected rate. Static art uses the same smooth row reveal as <code>--slow</code>: <code>1X</code> is 25 milliseconds per row.</p>
+          <p>Animated playback uses each frame's source byte count to determine how long it remains visible. DDW uses its source-defined per-frame duration at <code>1X</code>, scaled by the selected rate. Static art uses the same smooth row-reveal effect as <code>--slow</code>: <code>1X</code> is 25 milliseconds per row.</p>
           <p>Terminals with synchronized-output support reveal each redraw atomically. Playback preserves CP437 text and source-defined 16-color, 256-color, and true-color SGR sequences. An animation that explicitly homes to the terminal's top-left clears the canvas before playback; relative animations leave the terminal intact. Both retain their final frame and return the prompt below it.</p>
           <div class="callout"><p>Redirected UTF-8 output and Kitty or PNG output render the last visible state instead of replaying the animation. <code>--apng</code> and <code>--gif</code> retain every detected frame and loop forever.</p></div>
           <p>Supplying <code>--baud</code> explicitly replays an animation or uses the static row reveal even when UTF-8 output is redirected. It cannot be combined with Kitty, static PNG, <code>--slow</code>, or <code>--delay</code>.</p>
@@ -470,7 +470,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
           <pre><code><span class="prompt">$</span> bbcat --slow art.ans
 <span class="prompt">$</span> bbcat --delay 50 art.ans
 <span class="prompt">$</span> bbcat --kitty --slow art.ans</code></pre>
-          <p><code>--slow</code> reveals one character row at a time with a 25 millisecond delay. <code>--delay MS</code> enables slow mode with a custom delay from 1 through 10,000 milliseconds. Both UTF-8 and Kitty modes flush each row before waiting; Kitty mode automatically uses one image strip per character row.</p>
+          <p><code>--slow</code> reveals one character row at a time with a 35 millisecond delay. <code>--delay MS</code> enables slow mode with a custom delay from 1 through 10,000 milliseconds. Both UTF-8 and Kitty modes flush each row before waiting; Kitty mode automatically uses one image strip per character row.</p>
           <p>Slow mode is not supported with ANSI or DDW animation, image output, or RIPscrip raster graphics. Use <code>--baud</code> for baud-paced ANSI/text output. In Kitty slow mode, <code>--chunk-lines</code> has no effect.</p>
 
           <h3>2x scaling and fitting</h3>
@@ -515,7 +515,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
                 <tr><td><code>--chunk-lines ROWS</code></td><td>Set Kitty image-strip height from 1 through 256 character rows. The default is <code>$LINES - 1</code>, clamped to 1 through 64, or 24 when <code>$LINES</code> is unavailable.</td></tr>
                 <tr><td><code>--kitty</code></td><td>Use Kitty graphics instead of colored UTF-8.</td></tr>
                 <tr><td><code>--fit</code></td><td>Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row.</td></tr>
-                <tr><td><code>--slow</code></td><td>Reveal one character row at a time using a 25 ms delay.</td></tr>
+                <tr><td><code>--slow</code></td><td>Reveal one character row at a time using a 35 ms delay.</td></tr>
                 <tr><td><code>--delay MS</code></td><td>Enable slow mode with a delay from 1 through 10,000 ms per row.</td></tr>
                 <tr><td><code>--baud RATE</code></td><td>Control ANSI source-byte timing, DDW native frame timing, static ANSI/text row reveal, or APNG/GIF timing. <code>1X</code> is 25 ms per row. Run <code>bbcat --baud</code> alone for suggested values.</td></tr>
                 <tr><td><code>--2x</code></td><td>Double Kitty or image output width and height. Requires <code>--kitty</code>, <code>--output</code>, <code>--apng</code>, or <code>--gif</code>.</td></tr>
