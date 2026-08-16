@@ -1,14 +1,15 @@
 //! Decode and render ANSI and BBS artwork.
 //!
 //! Every supported input is decoded into a [`Screen`]. Character formats fill
-//! its grid of [`Cell`] values; RIPscrip fills its indexed-color raster instead.
+//! its grid of [`Cell`] values; TundraDraw additionally carries per-cell RGB
+//! colors, while RIPscrip fills its indexed-color raster instead.
 //! The text, PNG, and Kitty writers therefore do not need to understand the
 //! original file format.
 //!
 //! Use [`decode`] when the input format can be detected from its contents. Pass
 //! [`DecodeOptions::file_name`] when a file extension should disambiguate ADF,
-//! DDW, or RIPscrip input, and [`DecodeOptions::width`] to override the inferred
-//! text width.
+//! DDW, RIPscrip, or TundraDraw input, and [`DecodeOptions::width`] to override
+//! the inferred text width.
 //! ZIP art packs can be inspected with [`extract_archive_preview`] or
 //! [`list_archive_artworks`], and a named entry can be read with
 //! [`extract_archive_artwork`] before passing it to [`decode_with_options`].
@@ -53,6 +54,7 @@ mod png;
 mod rip;
 mod sauce;
 mod text;
+mod tundra;
 mod xbin;
 
 pub use animation_image::{encode_animation_apng, encode_animation_gif};
@@ -146,7 +148,8 @@ impl From<String> for Error {
 /// Options that influence format selection and text dimensions during decoding.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DecodeOptions<'a> {
-    /// File name used as a format hint for `.adf`, `.ddw`, and `.rip` inputs.
+    /// File name used as a format hint for `.adf`, `.ddw`, `.rip`, and `.tnd`
+    /// inputs.
     ///
     /// Content signatures still take precedence where a format has one.
     pub file_name: Option<&'a Path>,
@@ -167,6 +170,8 @@ pub enum Format {
     ArtWorx,
     /// RIPscrip level-one vector graphics (`.rip`).
     Ripscrip,
+    /// TundraDraw TUNDRA24 character art (`.tnd`).
+    TundraDraw,
     /// XBin artwork (`.xb`).
     XBin,
 }
@@ -178,6 +183,7 @@ impl fmt::Display for Format {
             Self::DarkDraw => "DarkDraw DDW",
             Self::ArtWorx => "ArtWorx ADF",
             Self::Ripscrip => "RIPscrip",
+            Self::TundraDraw => "TundraDraw TND",
             Self::XBin => "XBin",
         })
     }
@@ -254,14 +260,14 @@ impl Document {
         }
     }
 
-    /// Encodes the complete final screen as an indexed-color PNG.
+    /// Encodes the complete final screen as a PNG.
     ///
     /// `scale` must be at least one. A value of two doubles both dimensions.
     pub fn encode_png(&self, scale: usize) -> Result<Vec<u8>> {
         encode_screen_scaled(&self.screen, 0, self.screen.height, scale).map_err(Error::from)
     }
 
-    /// Encodes the complete final screen as an indexed-color PNG fitted within
+    /// Encodes the complete final screen as a PNG fitted within
     /// `maximum_width` by `maximum_height` pixels while preserving its aspect
     /// ratio. Smaller screens are not enlarged.
     pub fn encode_png_fit(&self, maximum_width: usize, maximum_height: usize) -> Result<Vec<u8>> {
@@ -324,14 +330,26 @@ pub fn decode(data: &[u8]) -> Result<Document> {
 
 /// Decodes artwork with optional filename and width hints.
 pub fn decode_with_options(data: &[u8], options: DecodeOptions<'_>) -> Result<Document> {
-    let (adf_hint, rip_hint, ddw_hint) = options.file_name.map_or((false, false, false), |name| {
-        (
-            has_extension(name, "adf"),
-            has_extension(name, "rip"),
-            has_extension(name, "ddw"),
-        )
-    });
-    render_inner(data, options.width, adf_hint, rip_hint, ddw_hint).map_err(Error::from)
+    let (adf_hint, rip_hint, ddw_hint, tundra_hint) =
+        options
+            .file_name
+            .map_or((false, false, false, false), |name| {
+                (
+                    has_extension(name, "adf"),
+                    has_extension(name, "rip"),
+                    has_extension(name, "ddw"),
+                    has_extension(name, "tnd"),
+                )
+            });
+    render_inner(
+        data,
+        options.width,
+        adf_hint,
+        rip_hint,
+        ddw_hint,
+        tundra_hint,
+    )
+    .map_err(Error::from)
 }
 
 /// Decodes an explicit asciimation.co.nz-style text stream.
@@ -347,7 +365,7 @@ pub fn decode_asciimation(data: &[u8]) -> Result<Asciimation> {
 /// This compatibility helper returns a string error. New library code should
 /// prefer [`decode`] or [`decode_with_options`].
 pub fn render(data: &[u8], width_override: Option<usize>) -> std::result::Result<Document, String> {
-    render_inner(data, width_override, false, false, false)
+    render_inner(data, width_override, false, false, false, false)
 }
 
 /// Decodes artwork with filename and optional width hints.
@@ -363,7 +381,15 @@ pub fn render_named(
     let adf_hint = has_extension(name, "adf");
     let rip_hint = has_extension(name, "rip");
     let ddw_hint = has_extension(name, "ddw");
-    render_inner(data, width_override, adf_hint, rip_hint, ddw_hint)
+    let tundra_hint = has_extension(name, "tnd");
+    render_inner(
+        data,
+        width_override,
+        adf_hint,
+        rip_hint,
+        ddw_hint,
+        tundra_hint,
+    )
 }
 
 fn has_extension(path: &Path, expected: &str) -> bool {
@@ -378,8 +404,40 @@ fn render_inner(
     adf_hint: bool,
     rip_hint: bool,
     ddw_hint: bool,
+    tundra_hint: bool,
 ) -> std::result::Result<Document, String> {
-    if ddw_hint || ddw::is_ddw(data) {
+    // XBin has an unambiguous magic signature. Detect it before rejecting common
+    // image signatures because its signature also contains the DOS EOF byte.
+    let is_xbin = data.starts_with(b"XBIN\x1a");
+    if !is_xbin && let Some(format) = unsupported_format(data) {
+        return Err(format!(
+            "{format} input is not supported; expected ANSI, DDW, DIZ, ADF, RIPscrip, TundraDraw, or XBin art"
+        ));
+    }
+
+    // SAUCE is a 128-byte trailer, not the artwork itself. Besides metadata it
+    // supplies the exact content boundary, dimensions, blink semantics, and font.
+    let sauce = Sauce::parse(data);
+    let binary_content = sauce.as_ref().map_or(data, |sauce| sauce.content(data));
+    let is_ddw = ddw::is_ddw(data);
+    let is_tundra = tundra::is_tundra(binary_content);
+    let is_rip = rip::is_rip(binary_content);
+    let is_adf = adf::is_adf(binary_content);
+    let allow_filename_hint = !is_ddw && !is_tundra && !is_rip && !is_adf;
+
+    if is_xbin {
+        // XBin declares its own payload size. Give its parser the original
+        // bytes so it can ignore physically valid SAUCE trailers even when a
+        // producer wrote an incorrect SAUCE file-size field.
+        let screen = xbin::parse(data, width_override)?;
+        return Ok(Document {
+            format: Format::XBin,
+            screen,
+            sauce,
+            animation: None,
+        });
+    }
+    if is_ddw || (allow_filename_hint && ddw_hint) {
         let parsed = ddw::parse(data, width_override)?;
         let animation = (!parsed.frames.is_empty()).then(|| Animation {
             frames: parsed
@@ -402,23 +460,35 @@ fn render_inner(
             animation,
         });
     }
-    // XBin has an unambiguous magic signature. Detect it before rejecting common
-    // image signatures because its signature also contains the DOS EOF byte.
-    let is_xbin = data.starts_with(b"XBIN\x1a");
-    if !is_xbin && let Some(format) = unsupported_format(data) {
-        return Err(format!(
-            "{format} input is not supported; expected ANSI, DDW, DIZ, ADF, RIPscrip, or XBin art"
-        ));
+
+    // Dispatch the structurally distinct formats first. ADF, RIPscrip, and
+    // TundraDraw do not use the ANSI state machine, while XBin already declares
+    // its complete grid.
+    if is_tundra || (allow_filename_hint && tundra_hint) {
+        let width = width_override.or_else(|| {
+            sauce
+                .as_ref()
+                .and_then(|sauce| (sauce.width > 0).then_some(sauce.width))
+        });
+        let mut screen = tundra::parse(binary_content, width)?;
+        if let Some(selected) = sauce
+            .as_ref()
+            .and_then(|sauce| font::sauce_font(&sauce.font_name))
+        {
+            screen.glyph_height = selected.glyph_height;
+            screen.font = Some(selected.glyphs.to_vec());
+        }
+        if let Some(spacing) = sauce.as_ref().and_then(|sauce| sauce.letter_spacing) {
+            screen.glyph_width = spacing.glyph_width();
+        }
+        return Ok(Document {
+            format: Format::TundraDraw,
+            screen,
+            sauce,
+            animation: None,
+        });
     }
-
-    // SAUCE is a 128-byte trailer, not the artwork itself. Besides metadata it
-    // supplies the exact content boundary, dimensions, blink semantics, and font.
-    let sauce = Sauce::parse(data);
-    let binary_content = sauce.as_ref().map_or(data, |sauce| sauce.content(data));
-
-    // Dispatch the structurally distinct formats first. ADF and RIPscrip do not
-    // use the ANSI state machine, while XBin already declares its complete grid.
-    if rip_hint || rip::is_rip(binary_content) {
+    if is_rip || (allow_filename_hint && rip_hint) {
         let screen = rip::parse(binary_content, width_override)?;
         return Ok(Document {
             format: Format::Ripscrip,
@@ -427,7 +497,7 @@ fn render_inner(
             animation: None,
         });
     }
-    if !is_xbin && (adf_hint || adf::is_adf(binary_content)) {
+    if is_adf || (allow_filename_hint && adf_hint) {
         let screen = adf::parse(binary_content, width_override)?;
         return Ok(Document {
             format: Format::ArtWorx,
@@ -436,25 +506,9 @@ fn render_inner(
             animation: None,
         });
     }
-    let content = if is_xbin {
-        binary_content
-    } else {
-        sauce
-            .as_ref()
-            .map_or_else(|| strip_dos_eof(data), |s| s.content(data))
-    };
-    if is_xbin {
-        // XBin declares its own payload size. Give its parser the original
-        // bytes so it can ignore physically valid SAUCE trailers even when a
-        // producer wrote an incorrect SAUCE file-size field.
-        let screen = xbin::parse(data, width_override)?;
-        return Ok(Document {
-            format: Format::XBin,
-            screen,
-            sauce,
-            animation: None,
-        });
-    }
+    let content = sauce
+        .as_ref()
+        .map_or_else(|| strip_dos_eof(data), |s| s.content(data));
     // ANSI has no mandatory header. Prefer an explicit width, then SAUCE, then
     // the longest display line when the escape sequences do not move the
     // cursor horizontally. Cursor-positioned artwork and styled ANSI whose
@@ -716,7 +770,7 @@ mod tests {
         let error = render(b"\x89PNG\r\n\x1a\nrest", None).unwrap_err();
         assert_eq!(
             error,
-            "PNG image input is not supported; expected ANSI, DDW, DIZ, ADF, RIPscrip, or XBin art"
+            "PNG image input is not supported; expected ANSI, DDW, DIZ, ADF, RIPscrip, TundraDraw, or XBin art"
         );
     }
 
@@ -748,6 +802,13 @@ mod tests {
     fn signed_binary_formats_take_precedence_over_an_adf_extension() {
         let error = render_named(b"XBIN\x1a", None, "misnamed.adf").unwrap_err();
         assert!(error.contains("truncated XBin header"));
+    }
+
+    #[test]
+    fn signed_binary_formats_take_precedence_over_a_tundra_extension() {
+        let data = b"XBIN\x1a\x01\0\x01\0\x10\0A\x07";
+        let document = render_named(data, None, "misnamed.tnd").unwrap();
+        assert_eq!(document.format, Format::XBin);
     }
 
     #[test]

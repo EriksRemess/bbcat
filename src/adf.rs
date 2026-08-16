@@ -94,6 +94,7 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
         glyph_height: 16,
         font: Some(font),
         palette: Some(palette),
+        true_colors: None,
         utf8_supported,
         raster: None,
     })

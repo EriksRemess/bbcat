@@ -503,13 +503,12 @@ fn write_screen_inner<W: Write>(
     validate_text_screen(screen)?;
     for (row_index, row) in screen.cells.chunks_exact(screen.width).enumerate() {
         let mut active_colors = None;
-        for cell in row.iter().take(columns) {
-            let colors = (cell.foreground, cell.background);
+        for (column, cell) in row.iter().take(columns).enumerate() {
+            let colors = screen.cell_colors_at(row_index * screen.width + column, cell);
             if active_colors != Some(colors) {
                 // Emit 24-bit SGR colors only when the pair changes, rather than
                 // repeating an escape sequence before every character.
-                let foreground = screen.color(colors.0);
-                let background = screen.color(colors.1);
+                let (foreground, background) = colors;
                 write!(
                     output,
                     "\x1b[38;2;{};{};{};48;2;{};{};{}m",
@@ -578,6 +577,7 @@ mod tests {
             glyph_height: 16,
             font: None,
             palette: None,
+            true_colors: None,
             utf8_supported: true,
             raster: None,
         }

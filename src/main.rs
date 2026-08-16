@@ -585,6 +585,7 @@ fn format_id(format: bbcat::Format) -> &'static str {
         bbcat::Format::DarkDraw => "darkdraw",
         bbcat::Format::ArtWorx => "artworx",
         bbcat::Format::Ripscrip => "ripscrip",
+        bbcat::Format::TundraDraw => "tundradraw",
         bbcat::Format::XBin => "xbin",
         _ => "unknown",
     }

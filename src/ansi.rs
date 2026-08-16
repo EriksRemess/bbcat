@@ -13,7 +13,8 @@ pub struct Cell {
     /// Index into the screen's color palette.
     ///
     /// ANSI and DDW screens may use all 256 xterm color indexes. Formats with
-    /// embedded palettes use indexes 0 through 15.
+    /// embedded palettes use indexes 0 through 15. TundraDraw callers should
+    /// use [`Screen::cell_colors`] to retrieve its exact per-cell RGB colors.
     pub foreground: u8,
     /// Index into the screen's color palette.
     pub background: u8,
@@ -44,6 +45,7 @@ pub struct Screen {
     pub(crate) glyph_height: usize,
     pub(crate) font: Option<Vec<u8>>,
     pub(crate) palette: Option<[[u8; 3]; 16]>,
+    pub(crate) true_colors: Option<Vec<([u8; 3], [u8; 3])>>,
     pub(crate) utf8_supported: bool,
     pub(crate) raster: Option<Raster>,
 }
@@ -70,6 +72,13 @@ impl Screen {
             .ok_or_else(|| "screen cell count overflow".to_owned())?;
         if self.width == 0 || self.height == 0 || self.cells.len() != expected {
             return Err("screen cell buffer does not match its dimensions".to_owned());
+        }
+        if self
+            .true_colors
+            .as_ref()
+            .is_some_and(|colors| colors.len() != expected)
+        {
+            return Err("screen true-color buffer does not match its dimensions".to_owned());
         }
         Ok(())
     }
@@ -114,6 +123,29 @@ impl Screen {
         } else {
             crate::XTERM_256_PALETTE[usize::from(index)]
         }
+    }
+
+    /// Returns the foreground and background RGB colors at a cell position.
+    ///
+    /// This preserves per-cell 24-bit colors in formats such as TundraDraw;
+    /// palette-based formats resolve their color indexes through the screen's
+    /// palette.
+    pub fn cell_colors(&self, column: usize, row: usize) -> Option<([u8; 3], [u8; 3])> {
+        let index = row.checked_mul(self.width)?.checked_add(column)?;
+        let cell = (column < self.width && row < self.height)
+            .then(|| self.cells.get(index))
+            .flatten()?;
+        match &self.true_colors {
+            Some(colors) => colors.get(index).copied(),
+            None => Some((self.color(cell.foreground), self.color(cell.background))),
+        }
+    }
+
+    pub(crate) fn cell_colors_at(&self, index: usize, cell: &Cell) -> ([u8; 3], [u8; 3]) {
+        self.true_colors.as_ref().map_or_else(
+            || (self.color(cell.foreground), self.color(cell.background)),
+            |colors| colors[index],
+        )
     }
 
     /// Returns the complete 256-color palette used by graphical output.
@@ -397,6 +429,7 @@ impl Parser {
             glyph_height: 16,
             font: None,
             palette: None,
+            true_colors: None,
             utf8_supported: true,
             raster: None,
         })

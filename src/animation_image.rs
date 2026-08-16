@@ -453,6 +453,7 @@ mod tests {
             glyph_height: 16,
             font: None,
             palette: None,
+            true_colors: None,
             utf8_supported: true,
             raster: None,
         };

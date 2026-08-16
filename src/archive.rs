@@ -90,7 +90,7 @@ fn preview_rank(name: &str) -> Option<u8> {
     match extension {
         "DIZ" => Some(2),
         "NFO" | "ANS" | "ASC" | "MEM" => Some(3),
-        "DDW" | "ADF" | "RIP" | "XB" => Some(4),
+        "DDW" | "ADF" | "RIP" | "TND" | "XB" => Some(4),
         "TXT" => Some(5),
         _ => None,
     }
@@ -748,11 +748,22 @@ mod tests {
                 compressed: b"notes",
                 plain: b"notes",
             },
+            TestEntry {
+                name: "art/truecolor.tnd",
+                method: 0,
+                compressed: b"tundra",
+                plain: b"tundra",
+            },
         ]);
 
         assert_eq!(
             list_artworks(&archive).unwrap(),
-            ["FILE_ID.DIZ", "art/demo.ans", "notes.nfo"]
+            [
+                "FILE_ID.DIZ",
+                "art/demo.ans",
+                "notes.nfo",
+                "art/truecolor.tnd"
+            ]
         );
         assert_eq!(extract_preview(&archive).unwrap().name, "FILE_ID.DIZ");
     }

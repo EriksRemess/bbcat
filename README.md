@@ -1,9 +1,10 @@
 # bbcat
 
 Dependency-free Rust library and terminal viewer for CP437 ANSI and ansimation,
-ASCIImation text streams, DarkDraw DDW, DIZ, ADF, RIPscrip, and XBin art. It
-writes colored UTF-8 by default, with optional Kitty graphics plus PNG, APNG,
-and GIF output. The CLI can also preview artwork embedded in ZIP packs.
+ASCIImation text streams, DarkDraw DDW, DIZ, ADF, RIPscrip, TundraDraw TND, and
+XBin art. It writes colored UTF-8 by default, with optional Kitty graphics plus
+PNG, APNG, and GIF output. The CLI can also preview artwork embedded in ZIP
+packs.
 
 Browse and download BBS art packs at [16colo.rs](https://16colo.rs/).
 
@@ -113,9 +114,10 @@ Use `decode` for content-based detection with inferred dimensions, or
 `Document` reports its `Format`, final `Screen`, optional `Sauce`, and optional
 `Animation`; `Document::is_animated` identifies detected ANSI and DarkDraw
 animations, while `Document::info` returns an owned `DocumentInfo` summary for
-application integration. Character screens expose cells, glyph and pixel dimensions,
-palette and font data; RIPscrip screens expose their indexed raster. Documents
-can be encoded directly to PNG, APNG, or GIF. Use `Document::encode_png_fit`
+application integration. Character screens expose cells, glyph and pixel
+dimensions, palette and font data, plus exact per-cell RGB colors for
+TundraDraw; RIPscrip screens expose their indexed raster. Documents can be
+encoded directly to PNG, APNG, or GIF. Use `Document::encode_png_fit`
 for a bounded static preview that preserves the artwork's aspect ratio. The
 lower-level text and Kitty writers remain available for streaming output.
 ASCIImation has no format signature; decode it explicitly with
@@ -159,7 +161,7 @@ a separate bbcat installation are not required.
 | --- | --- | --- |
 | UTF-8 | default | Converts CP437 characters to Unicode and emits 24-bit ANSI colors. |
 | Kitty | `--kitty` | Renders bitmap glyphs through Kitty graphics, cropping at the terminal's right edge. |
-| PNG | `-o FILE`, `--output FILE` | Writes one indexed-color PNG; use `-` to write it to standard output. |
+| PNG | `-o FILE`, `--output FILE` | Writes one PNG, preserving TundraDraw 24-bit colors; use `-` to write it to standard output. |
 | APNG | `--apng FILE` | Writes a looping indexed-color animated PNG from an ANSI or DDW animation. |
 | GIF | `--gif FILE` | Writes a looping indexed-color animated GIF from an ANSI or DDW animation. |
 | Information | `--info` | Writes detected format, dimensions, animation frames, rendering capabilities, and SAUCE metadata as JSON. |
@@ -273,8 +275,9 @@ bbcat --2x --kitty --slow art.ans
 `--2x` doubles both graphical output dimensions. Kitty mode crops the doubled
 bitmap at the terminal width unless `--fit` is present; image output writes an
 image with twice the width and height. It works with ANSI/text, DDW, XBin, ADF,
-and RIPscrip, and can be combined with Kitty slow mode. ASCIImation playback
-does not support scaling. Slow-mode delays remain per original artwork row.
+TundraDraw, and RIPscrip, and can be combined with Kitty slow mode. ASCIImation
+playback does not support scaling. Slow-mode delays remain per original artwork
+row.
 
 Scaling is intentionally unavailable in UTF-8 mode: repeating text characters
 would change strings and distort line art. Use `--kitty`, `--output FILE`,
@@ -304,6 +307,12 @@ always retains its full dimensions.
   preserves Unicode glyphs and 16- and 256-color styles; graphical output uses
   the same color indexes with a CP437 glyph approximation where necessary.
   APNG and GIF retain every frame.
+- TundraDraw (`.TND`) TUNDRA24 character art with absolute cursor positioning
+  and independent 24-bit foreground and background colors. SAUCE supplies the
+  width and VGA letter spacing when present; otherwise the canvas is 80 columns.
+  PNG, Kitty, and UTF-8 terminal output preserve the source RGB colors. PNG uses
+  a lossless adaptive palette when the rendered image fits in 256 colors and
+  true-color RGB otherwise.
 - XBin (`.XB`) with embedded palettes, 8- or 16-color backgrounds, embedded
   fonts up to 32 pixels high, 256- and 512-character modes, and XBin RLE.
 - ArtWorx Data Format (`.ADF`) version 1 with its embedded palette and 8x16
@@ -333,7 +342,7 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 
 | Option | Description |
 | --- | --- |
-| `-w COLS`, `--width COLS` | Override text width. ANSI/text dimensions are limited by the decoded-cell safety budget. DDW and XBin must match their declared width; an untagged DDW may be widened but not narrowed. ADF must be 80, and RIPscrip must be 640. |
+| `-w COLS`, `--width COLS` | Override text width. ANSI/text and TundraDraw dimensions are limited by the decoded-cell safety budget. DDW and XBin must match their declared width; an untagged DDW may be widened but not narrowed. ADF must be 80, and RIPscrip must be 640. |
 | `--chunk-lines ROWS` | Set the number of character rows in each Kitty image strip, from 1 through 256. The default is `$LINES - 1`, clamped to 1 through 64, or 24 when `$LINES` is unavailable. |
 | `--kitty` | Use Kitty graphics instead of colored UTF-8. |
 | `--fit` | Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row. |
@@ -343,7 +352,7 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 | `--2x` | Double Kitty or image output width and height. Requires `--kitty`, `--output FILE`, `--apng FILE`, or `--gif FILE`. |
 | `--sauce` | Show the available SAUCE title, author, group, and creation date below the artwork. |
 | `--info` | Print detected format, dimensions, animation frames, rendering capabilities, and SAUCE metadata as JSON. Requires exactly one input and cannot be combined with rendering or output options. |
-| `-o FILE`, `--output FILE` | Write an indexed-color PNG. Use `-` for standard output; requires exactly one input. |
+| `-o FILE`, `--output FILE` | Write a PNG, preserving TundraDraw 24-bit colors. Use `-` for standard output; requires exactly one input. |
 | `--apng FILE` | Write a looping indexed-color animated PNG from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
 | `--gif FILE` | Write a looping indexed-color animated GIF from ANSI or DDW animation frames. Use `-` for standard output; requires exactly one input. `--baud` controls timing. |
 | `--list-archive` | List supported artwork entry names in exactly one ZIP archive. Cannot be combined with rendering or output options. |

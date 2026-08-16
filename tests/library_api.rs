@@ -1,6 +1,6 @@
 use std::{error::Error as StdError, path::Path, time::Duration};
 
-use bbcat::{DecodeOptions, Format};
+use bbcat::{Cell, DecodeOptions, Format};
 
 fn stored_zip(name: &str, data: &[u8]) -> Vec<u8> {
     fn crc32(data: &[u8]) -> u32 {
@@ -184,6 +184,57 @@ fn reports_the_detected_format() {
     let document = bbcat::decode(data.as_bytes()).unwrap();
     assert_eq!(document.format, Format::DarkDraw);
     assert!(document.is_animated());
+}
+
+#[test]
+fn decodes_tundradraw_true_colors_through_the_public_api() -> Result<(), Box<dyn StdError>> {
+    let data = [
+        0x18, b'T', b'U', b'N', b'D', b'R', b'A', b'2', b'4', 6, b'A', 0, 0x12, 0x34, 0x56, 0,
+        0x65, 0x43, 0x21,
+    ];
+    let document = bbcat::decode_with_options(
+        &data,
+        DecodeOptions {
+            file_name: Some(Path::new("sample.TND")),
+            width: Some(1),
+        },
+    )?;
+
+    assert_eq!(document.format, Format::TundraDraw);
+    assert_eq!(
+        document.screen.cell(0, 0).unwrap().character,
+        u16::from(b'A')
+    );
+    assert_eq!(
+        document.screen.cell_colors(0, 0),
+        Some(([0x12, 0x34, 0x56], [0x65, 0x43, 0x21]))
+    );
+    let png = document.encode_png(1)?;
+    assert_eq!(&png[16..24], &[0, 0, 0, 8, 0, 0, 0, 16]);
+    assert_eq!(&png[24..26], &[4, 3]);
+    let fitted = document.encode_png_fit(4, 8)?;
+    assert_eq!(&fitted[16..24], &[0, 0, 0, 4, 0, 0, 0, 8]);
+    assert_eq!(&fitted[24..26], &[4, 3]);
+    let mut terminal = Vec::new();
+    bbcat::write_text(&mut terminal, &document.screen)?;
+    assert!(terminal.starts_with(b"\x1b[38;2;18;52;86;48;2;101;67;33mA"));
+    Ok(())
+}
+
+#[test]
+fn cell_colors_handles_inconsistent_public_screen_dimensions() {
+    let mut document = bbcat::decode_with_options(
+        b"\x18TUNDRA24A",
+        DecodeOptions {
+            file_name: Some(Path::new("sample.tnd")),
+            width: Some(1),
+        },
+    )
+    .unwrap();
+    document.screen.height = 2;
+    document.screen.cells.push(Cell::default());
+
+    assert_eq!(document.screen.cell_colors(0, 1), None);
 }
 
 #[test]

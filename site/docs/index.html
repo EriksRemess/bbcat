@@ -408,7 +408,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
     Ok(())
 }</code></pre>
           <p>Use <code>decode</code> for content-based detection with inferred dimensions, or <code>decode_with_options</code> to supply a filename hint and width override. A decoded <code>Document</code> reports its <code>Format</code>, final <code>Screen</code>, optional <code>Sauce</code>, and optional <code>Animation</code>; <code>Document::is_animated</code> identifies detected ANSI and DarkDraw animations, while <code>Document::info</code> returns an owned <code>DocumentInfo</code> summary for application integration.</p>
-          <p>Character screens expose cells, glyph and pixel dimensions, palette and font data; RIPscrip screens expose their indexed raster. Documents can be encoded directly to PNG, APNG, or GIF. Use <code>Document::encode_png_fit</code> for a bounded static preview that preserves the artwork's aspect ratio. Lower-level text and Kitty writers remain available for streaming output. ASCIImation has no format signature; decode it explicitly with <code>decode_asciimation</code>.</p>
+          <p>Character screens expose cells, glyph and pixel dimensions, palette and font data, plus exact per-cell RGB colors for TundraDraw; RIPscrip screens expose their indexed raster. Documents can be encoded directly to PNG, APNG, or GIF. Use <code>Document::encode_png_fit</code> for a bounded static preview that preserves the artwork's aspect ratio. Lower-level text and Kitty writers remain available for streaming output. ASCIImation has no format signature; decode it explicitly with <code>decode_asciimation</code>.</p>
           <p>Use <code>is_zip</code> and <code>extract_archive_preview</code> to select and decompress the same ZIP art-pack preview used by the CLI. <code>list_archive_artworks</code> returns supported entry names, and <code>extract_archive_artwork</code> extracts one by its exact name. Pass the returned <code>ArchiveEntry</code> data and name to <code>decode_with_options</code>.</p>
           <p><a href="https://docs.rs/bbcat/">Browse the complete library API documentation on docs.rs.</a></p>
         </section>
@@ -429,7 +429,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
               <tbody>
                 <tr><td>UTF-8</td><td>default</td><td>Converts CP437 characters to Unicode and emits 24-bit ANSI colors.</td></tr>
                 <tr><td>Kitty</td><td><code>--kitty</code></td><td>Renders bitmap glyphs through Kitty graphics, cropping at the terminal's right edge.</td></tr>
-                <tr><td>PNG</td><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Writes one indexed-color PNG; use <code>-</code> to write it to standard output.</td></tr>
+                <tr><td>PNG</td><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Writes one PNG, preserving TundraDraw 24-bit colors; use <code>-</code> to write it to standard output.</td></tr>
                 <tr><td>APNG</td><td><code>--apng FILE</code></td><td>Writes a looping indexed-color animated PNG from an ANSI or DDW animation.</td></tr>
                 <tr><td>GIF</td><td><code>--gif FILE</code></td><td>Writes a looping indexed-color animated GIF from an ANSI or DDW animation.</td></tr>
                 <tr><td>Information</td><td><code>--info</code></td><td>Writes detected format, dimensions, animation frames, rendering capabilities, and SAUCE metadata as JSON.</td></tr>
@@ -478,7 +478,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
 <span class="prompt">$</span> bbcat --kitty --fit wide.ans
 <span class="prompt">$</span> bbcat --2x --output large.png drawing.rip
 <span class="prompt">$</span> bbcat --2x --apng large.png animation.ans</code></pre>
-          <p><code>--2x</code> doubles graphical output dimensions. Kitty mode crops the doubled bitmap at terminal width unless <code>--fit</code> is present; image output writes an image with twice the width and height. It works with ANSI/text, DDW, XBin, ADF, and RIPscrip, and can be combined with Kitty slow mode. ASCIImation playback does not support scaling.</p>
+          <p><code>--2x</code> doubles graphical output dimensions. Kitty mode crops the doubled bitmap at terminal width unless <code>--fit</code> is present; image output writes an image with twice the width and height. It works with ANSI/text, DDW, XBin, ADF, TundraDraw, and RIPscrip, and can be combined with Kitty slow mode. ASCIImation playback does not support scaling.</p>
           <p>Scaling is unavailable in UTF-8 mode because repeating text characters would change strings and distort line art. Use <code>--kitty</code>, <code>--output FILE</code>, <code>--apng FILE</code>, or <code>--gif FILE</code> with <code>--2x</code>.</p>
           <p>When UTF-8 output goes directly to a terminal, rows wider than the terminal are cropped to its current column count. Redirected output preserves the full artwork width. Kitty crops at terminal width by default; <code>--fit</code> scales the complete image down when at least one terminal row remains. Image output always retains its full dimensions.</p>
         </section>
@@ -495,6 +495,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
             <li><strong>ANSI and plain CP437 text</strong>, including <code>.ANS</code>, <code>.DIZ</code>, <code>.ASC</code>, <code>.NFO</code>, <code>.MEM</code>, and <code>.TXT</code>. Cursor movement, erasing, standard and bright colors, inverse video, blink/iCE colors, xterm-256 colors, wrapping, SAUCE dimensions, and baud-paced ansimation are handled. Ansimation also preserves true-color SGR sequences.</li>
             <li><strong>ASCIImation text streams</strong> containing a duration in 100 ms ticks followed by thirteen ASCII rows per frame. Because the format has no signature, use <code>--asciimation</code> in the CLI or <code>decode_asciimation</code> from Rust.</li>
             <li><strong>DarkDraw (<code>.DDW</code>)</strong> UTF-8 JSON Lines text art and animation. Objects are painted in source order, group references are expanded recursively, and each frame uses its declared duration. Dimensions come from metadata when present or are inferred from positioned text.</li>
+            <li><strong>TundraDraw (<code>.TND</code>)</strong> TUNDRA24 character art with absolute cursor positioning and independent 24-bit foreground and background colors. SAUCE supplies the width and VGA letter spacing when present; otherwise the canvas is 80 columns. PNG, Kitty, and UTF-8 terminal output preserve the source RGB colors. PNG uses a lossless adaptive palette when the rendered image fits in 256 colors and true-color RGB otherwise.</li>
             <li><strong>XBin (<code>.XB</code>)</strong> with embedded palettes, 8- or 16-color backgrounds, embedded fonts up to 32 pixels high, 256- and 512-character modes, and XBin RLE.</li>
             <li><strong>ArtWorx Data Format (<code>.ADF</code>)</strong> version 1 with its embedded palette and 8×16 font. ADF is fixed at 80 columns.</li>
             <li><strong>RIPscrip (<code>.RIP</code>)</strong> level-one vector graphics, including bitmap and proportional BGI stroke fonts. RIPscrip is rendered to a 640×350 canvas and requires Kitty or PNG output.</li>
@@ -510,7 +511,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
             <table>
               <thead><tr><th>Option</th><th>Description</th></tr></thead>
               <tbody>
-                <tr><td><code>-w COLS</code><br><code>--width COLS</code></td><td>Override text width. ANSI/text dimensions are limited by the decoded-cell safety budget. DDW and XBin must match their declared width; untagged DDW may be widened but not narrowed. ADF must be 80 and RIPscrip must be 640.</td></tr>
+                <tr><td><code>-w COLS</code><br><code>--width COLS</code></td><td>Override text width. ANSI/text and TundraDraw dimensions are limited by the decoded-cell safety budget. DDW and XBin must match their declared width; untagged DDW may be widened but not narrowed. ADF must be 80 and RIPscrip must be 640.</td></tr>
                 <tr><td><code>--chunk-lines ROWS</code></td><td>Set Kitty image-strip height from 1 through 256 character rows. The default is <code>$LINES - 1</code>, clamped to 1 through 64, or 24 when <code>$LINES</code> is unavailable.</td></tr>
                 <tr><td><code>--kitty</code></td><td>Use Kitty graphics instead of colored UTF-8.</td></tr>
                 <tr><td><code>--fit</code></td><td>Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row.</td></tr>
@@ -520,7 +521,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
                 <tr><td><code>--2x</code></td><td>Double Kitty or image output width and height. Requires <code>--kitty</code>, <code>--output</code>, <code>--apng</code>, or <code>--gif</code>.</td></tr>
                 <tr><td><code>--sauce</code></td><td>Show available SAUCE title, author, group, and creation date below the artwork.</td></tr>
                 <tr><td><code>--info</code></td><td>Print detected format, dimensions, animation frames, rendering capabilities, and SAUCE metadata as JSON. Requires exactly one input and cannot be combined with rendering or output options.</td></tr>
-                <tr><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Write an indexed-color PNG. Use <code>-</code> for standard output; requires exactly one input.</td></tr>
+                <tr><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Write a PNG, preserving TundraDraw 24-bit colors. Use <code>-</code> for standard output; requires exactly one input.</td></tr>
                 <tr><td><code>--apng FILE</code></td><td>Write a looping indexed-color animated PNG from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
                 <tr><td><code>--gif FILE</code></td><td>Write a looping indexed-color animated GIF from ANSI or DDW frames. Use <code>-</code> for standard output; requires exactly one input. <code>--baud</code> controls timing.</td></tr>
                 <tr><td><code>--list-archive</code></td><td>List supported artwork entry names in exactly one ZIP archive. Cannot be combined with rendering or output options.</td></tr>
