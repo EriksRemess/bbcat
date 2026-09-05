@@ -232,9 +232,11 @@ fn write_screen_inner<W: Write>(
         advance_rows(output, placement_rows)?;
         return output.flush();
     }
-    // Fit needs the whole image to calculate one aspect ratio. Other modes can
-    // limit each PNG to a manageable number of character rows.
-    let chunk_lines = if matches!(width_mode, WidthMode::Fit(_)) {
+    // Slow fit uses one source row per strip at the same width ratio. The
+    // height check above ensures each strip still occupies a terminal row.
+    let chunk_lines = if delay.is_some() {
+        1
+    } else if matches!(width_mode, WidthMode::Fit(_)) {
         screen.height
     } else {
         chunk_lines.max(1)
@@ -526,6 +528,24 @@ mod tests {
         write_screen_scaled(&mut output, &screen, 24, 2).unwrap();
         assert!(output.starts_with(b"\x1b_Ga=T,f=100,c=2,r=2,C=1,q=2,m=0;"));
         assert!(output.ends_with(b"\x1b\\\r\n\r\n"));
+    }
+
+    #[test]
+    fn slow_fit_reveals_each_row_with_a_delay() {
+        let document = crate::decode(b"AB\nCD").unwrap();
+        // 2x scaling then fitting into two columns exercises actual downscaling.
+        let mut output = Vec::new();
+        let delay = Duration::from_millis(10);
+        let started = std::time::Instant::now();
+        write_screen_slow_scaled_fit(&mut output, &document.screen, delay, 2, 2).unwrap();
+        assert_eq!(
+            output
+                .windows(b"\x1b_Ga=T".len())
+                .filter(|window| *window == b"\x1b_Ga=T")
+                .count(),
+            2
+        );
+        assert!(started.elapsed() >= delay);
     }
 
     #[test]

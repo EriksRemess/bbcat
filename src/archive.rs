@@ -372,7 +372,7 @@ impl Huffman {
     }
 }
 
-fn inflate(data: &[u8], expected_size: usize) -> Result<Vec<u8>, String> {
+pub(crate) fn inflate(data: &[u8], expected_size: usize) -> Result<Vec<u8>, String> {
     let mut bits = Bits { data, offset: 0 };
     let mut output = Vec::with_capacity(expected_size);
     loop {

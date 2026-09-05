@@ -35,7 +35,7 @@ fn main() -> ExitCode {
     match run() {
         Ok(status) => status,
         Err(message) => {
-            eprintln!("bbcat: {message}");
+            eprintln!("bbcat: {}", terminal_text(&message));
             ExitCode::FAILURE
         }
     }
@@ -82,7 +82,8 @@ fn run() -> Result<ExitCode, String> {
         let mut stdout = io::stdout().lock();
         for entry in entries {
             use std::io::Write;
-            writeln!(stdout, "{entry}").map_err(|error| format!("stdout: {error}"))?;
+            writeln!(stdout, "{}", terminal_text(&entry))
+                .map_err(|error| format!("stdout: {error}"))?;
         }
         return Ok(ExitCode::SUCCESS);
     }
@@ -201,7 +202,7 @@ fn run() -> Result<ExitCode, String> {
         let input = match read_input(path) {
             Ok(input) => input,
             Err(error) => {
-                eprintln!("bbcat: {error}");
+                eprintln!("bbcat: {}", terminal_text(&error));
                 input_error = true;
                 continue;
             }
@@ -220,7 +221,7 @@ fn run() -> Result<ExitCode, String> {
         ) {
             Ok(document) => document,
             Err(error) => {
-                eprintln!("bbcat: {file}: {error}");
+                eprintln!("bbcat: {}", terminal_text(&format!("{file}: {error}")));
                 input_error = true;
                 continue;
             }
@@ -231,142 +232,148 @@ fn run() -> Result<ExitCode, String> {
         }
         if options.delay.is_some() && document.animation.is_some() {
             eprintln!(
-                "bbcat: {file}: use --baud to control animation speed; --slow/--delay reveal static art by row"
+                "bbcat: {}: use --baud to control animation speed; --slow/--delay reveal static art by row",
+                terminal_text(&file)
             );
             input_error = true;
             continue;
         }
-        if let Some(path) = &options.apng {
-            let animation = document
-                .animation
-                .as_ref()
-                .ok_or_else(|| format!("{file}: --apng requires an animated ANSI or DDW input"))?;
-            let apng = bbcat::encode_animation_apng(
-                animation,
-                options.baud.unwrap_or(bbcat::DEFAULT_ANIMATION_BAUD),
-                options.scale,
-            )
-            .map_err(|error| format!("{file}: {error}"))?;
-            write_png(&mut stdout, path, &apng)?;
-        } else if let Some(path) = &options.gif {
-            let animation = document
-                .animation
-                .as_ref()
-                .ok_or_else(|| format!("{file}: --gif requires an animated ANSI or DDW input"))?;
-            let gif = bbcat::encode_animation_gif(
-                animation,
-                options.baud.unwrap_or(bbcat::DEFAULT_ANIMATION_BAUD),
-                options.scale,
-            )
-            .map_err(|error| format!("{file}: {error}"))?;
-            write_png(&mut stdout, path, &gif)?;
-        } else if let Some(path) = &options.output {
-            // File output is a single PNG containing the complete screen.
-            let png = bbcat::encode_screen_scaled(
-                &document.screen,
-                0,
-                document.screen.height,
-                options.scale,
-            )
-            .map_err(|error| format!("{file}: {error}"))?;
-            write_png(&mut stdout, path, &png)?;
-        } else if options.kitty {
-            // Kitty output transports PNG chunks inside terminal escape sequences;
-            // fit/crop, reveal delay, and scale select the appropriate wrapper.
-            if let Some(delay) = options.delay {
-                if let Some(columns) = terminal_columns {
-                    if options.fit {
-                        bbcat::write_screen_slow_scaled_fit(
+        let rendered = (|| -> Result<(), String> {
+            if let Some(path) = &options.apng {
+                let animation = document.animation.as_ref().ok_or_else(|| {
+                    format!("{file}: --apng requires an animated ANSI or DDW input")
+                })?;
+                let apng = bbcat::encode_animation_apng(
+                    animation,
+                    options.baud.unwrap_or(bbcat::DEFAULT_ANIMATION_BAUD),
+                    options.scale,
+                )
+                .map_err(|error| format!("{file}: {error}"))?;
+                write_png(&mut stdout, path, &apng)?;
+            } else if let Some(path) = &options.gif {
+                let animation = document.animation.as_ref().ok_or_else(|| {
+                    format!("{file}: --gif requires an animated ANSI or DDW input")
+                })?;
+                let gif = bbcat::encode_animation_gif(
+                    animation,
+                    options.baud.unwrap_or(bbcat::DEFAULT_ANIMATION_BAUD),
+                    options.scale,
+                )
+                .map_err(|error| format!("{file}: {error}"))?;
+                write_png(&mut stdout, path, &gif)?;
+            } else if let Some(path) = &options.output {
+                // File output is a single PNG containing the complete screen.
+                let png = bbcat::encode_screen_scaled(
+                    &document.screen,
+                    0,
+                    document.screen.height,
+                    options.scale,
+                )
+                .map_err(|error| format!("{file}: {error}"))?;
+                write_png(&mut stdout, path, &png)?;
+            } else if options.kitty {
+                // Kitty output transports PNG chunks inside terminal escape sequences;
+                // fit/crop, reveal delay, and scale select the appropriate wrapper.
+                if let Some(delay) = options.delay {
+                    if let Some(columns) = terminal_columns {
+                        if options.fit {
+                            bbcat::write_screen_slow_scaled_fit(
+                                &mut stdout,
+                                &document.screen,
+                                delay,
+                                options.scale,
+                                columns,
+                            )
+                            .map_err(|error| format!("{file}: {error}"))?;
+                        } else {
+                            bbcat::write_screen_slow_scaled_cropped(
+                                &mut stdout,
+                                &document.screen,
+                                delay,
+                                options.scale,
+                                columns,
+                            )
+                            .map_err(|error| format!("{file}: {error}"))?;
+                        }
+                    } else {
+                        bbcat::write_screen_slow_scaled(
                             &mut stdout,
                             &document.screen,
                             delay,
+                            options.scale,
+                        )
+                        .map_err(|error| format!("{file}: {error}"))?;
+                    }
+                } else if let Some(columns) = terminal_columns {
+                    if options.fit {
+                        bbcat::write_screen_scaled_fit(
+                            &mut stdout,
+                            &document.screen,
+                            options.chunk_lines,
                             options.scale,
                             columns,
                         )
                         .map_err(|error| format!("{file}: {error}"))?;
                     } else {
-                        bbcat::write_screen_slow_scaled_cropped(
+                        bbcat::write_screen_scaled_cropped(
                             &mut stdout,
                             &document.screen,
-                            delay,
+                            options.chunk_lines,
                             options.scale,
                             columns,
                         )
                         .map_err(|error| format!("{file}: {error}"))?;
                     }
                 } else {
-                    bbcat::write_screen_slow_scaled(
+                    bbcat::write_screen_scaled(
                         &mut stdout,
                         &document.screen,
-                        delay,
+                        options.chunk_lines,
                         options.scale,
                     )
                     .map_err(|error| format!("{file}: {error}"))?;
+                }
+            } else if let Some(animation) = &document.animation
+                && (stdout_is_terminal || options.baud.is_some())
+            {
+                let baud = options.baud.unwrap_or(bbcat::DEFAULT_ANIMATION_BAUD);
+                bbcat::write_animation_at_baud(&mut stdout, animation, baud)
+                    .map_err(|error| format!("{file}: {error}"))?;
+            } else if let Some(baud) = options.baud {
+                // Static art has no frame timing. Reuse the smooth row reveal,
+                // scaling its delay from the same 1X baud baseline as animation.
+                let delay = baud_row_delay(baud);
+                if let Some(columns) = terminal_columns {
+                    bbcat::write_text_slow_cropped(&mut stdout, &document.screen, delay, columns)
+                        .map_err(|error| format!("{file}: {error}"))?;
+                } else {
+                    bbcat::write_text_slow(&mut stdout, &document.screen, delay)
+                        .map_err(|error| format!("{file}: {error}"))?;
+                }
+            } else if let Some(delay) = options.delay {
+                // Plain terminal output maps CP437 cells to Unicode plus ANSI colors.
+                if let Some(columns) = terminal_columns {
+                    bbcat::write_text_slow_cropped(&mut stdout, &document.screen, delay, columns)
+                        .map_err(|error| format!("{file}: {error}"))?;
+                } else {
+                    bbcat::write_text_slow(&mut stdout, &document.screen, delay)
+                        .map_err(|error| format!("{file}: {error}"))?;
                 }
             } else if let Some(columns) = terminal_columns {
-                if options.fit {
-                    bbcat::write_screen_scaled_fit(
-                        &mut stdout,
-                        &document.screen,
-                        options.chunk_lines,
-                        options.scale,
-                        columns,
-                    )
-                    .map_err(|error| format!("{file}: {error}"))?;
-                } else {
-                    bbcat::write_screen_scaled_cropped(
-                        &mut stdout,
-                        &document.screen,
-                        options.chunk_lines,
-                        options.scale,
-                        columns,
-                    )
-                    .map_err(|error| format!("{file}: {error}"))?;
-                }
-            } else {
-                bbcat::write_screen_scaled(
-                    &mut stdout,
-                    &document.screen,
-                    options.chunk_lines,
-                    options.scale,
-                )
-                .map_err(|error| format!("{file}: {error}"))?;
-            }
-        } else if let Some(animation) = &document.animation
-            && (stdout_is_terminal || options.baud.is_some())
-        {
-            let baud = options.baud.unwrap_or(bbcat::DEFAULT_ANIMATION_BAUD);
-            bbcat::write_animation_at_baud(&mut stdout, animation, baud)
-                .map_err(|error| format!("{file}: {error}"))?;
-        } else if let Some(baud) = options.baud {
-            // Static art has no frame timing. Reuse the smooth row reveal,
-            // scaling its delay from the same 1X baud baseline as animation.
-            let delay = baud_row_delay(baud);
-            if let Some(columns) = terminal_columns {
-                bbcat::write_text_slow_cropped(&mut stdout, &document.screen, delay, columns)
+                bbcat::write_text_cropped(&mut stdout, &document.screen, columns)
                     .map_err(|error| format!("{file}: {error}"))?;
             } else {
-                bbcat::write_text_slow(&mut stdout, &document.screen, delay)
+                bbcat::write_text(&mut stdout, &document.screen)
                     .map_err(|error| format!("{file}: {error}"))?;
             }
-        } else if let Some(delay) = options.delay {
-            // Plain terminal output maps CP437 cells to Unicode plus ANSI colors.
-            if let Some(columns) = terminal_columns {
-                bbcat::write_text_slow_cropped(&mut stdout, &document.screen, delay, columns)
-                    .map_err(|error| format!("{file}: {error}"))?;
-            } else {
-                bbcat::write_text_slow(&mut stdout, &document.screen, delay)
-                    .map_err(|error| format!("{file}: {error}"))?;
+            if options.sauce {
+                write_sauce(&mut stdout, document.sauce.as_ref())?;
             }
-        } else if let Some(columns) = terminal_columns {
-            bbcat::write_text_cropped(&mut stdout, &document.screen, columns)
-                .map_err(|error| format!("{file}: {error}"))?;
-        } else {
-            bbcat::write_text(&mut stdout, &document.screen)
-                .map_err(|error| format!("{file}: {error}"))?;
-        }
-        if options.sauce {
-            write_sauce(&mut stdout, document.sauce.as_ref())?;
+            Ok(())
+        })();
+        if let Err(error) = rendered {
+            eprintln!("bbcat: {}", terminal_text(&error));
+            input_error = true;
         }
     }
     Ok(if input_error {
@@ -604,7 +611,7 @@ fn json_string(value: &str) -> String {
             '\t' => encoded.push_str("\\t"),
             '\u{08}' => encoded.push_str("\\b"),
             '\u{0c}' => encoded.push_str("\\f"),
-            character if character <= '\u{1f}' => {
+            character if character.is_control() => {
                 encoded.push_str(&format!("\\u{:04x}", character as u32));
             }
             character => encoded.push(character),
@@ -623,6 +630,19 @@ fn write_png<W: io::Write>(output: &mut W, path: &Path, png: &[u8]) -> Result<()
     } else {
         fs::write(path, png).map_err(|error| format!("{}: {error}", path.display()))
     }
+}
+
+// Keep names and metadata readable while preventing terminal control injection.
+fn terminal_text(value: &str) -> String {
+    let mut text = String::new();
+    for character in value.chars() {
+        if character.is_control() {
+            text.extend(character.escape_default());
+        } else {
+            text.push(character);
+        }
+    }
+    text
 }
 
 fn write_sauce<W: io::Write>(output: &mut W, sauce: Option<&bbcat::Sauce>) -> Result<(), String> {
@@ -647,11 +667,12 @@ fn write_sauce<W: io::Write>(output: &mut W, sauce: Option<&bbcat::Sauce>) -> Re
 
     writeln!(output).map_err(|error| format!("stdout: {error}"))?;
     if !sauce.title.is_empty() {
-        writeln!(output, "\x1b[1m{}\x1b[0m", sauce.title)
+        writeln!(output, "\x1b[1m{}\x1b[0m", terminal_text(&sauce.title))
             .map_err(|error| format!("stdout: {error}"))?;
     }
     if !details.is_empty() {
-        writeln!(output, "{}", details.join(" · ")).map_err(|error| format!("stdout: {error}"))?;
+        writeln!(output, "{}", terminal_text(&details.join(" · ")))
+            .map_err(|error| format!("stdout: {error}"))?;
     }
     writeln!(output).map_err(|error| format!("stdout: {error}"))
 }

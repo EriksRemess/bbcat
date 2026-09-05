@@ -580,7 +580,7 @@ fn rgb_to_indexed(width: usize, height: usize, pixels: &[u8]) -> Option<(Vec<u8>
             return None;
         }
         indexes.push(0);
-        for rgb in row[1..].chunks_exact(3) {
+        for rgb in row[1..].as_chunks::<3>().0 {
             let color = [rgb[0], rgb[1], rgb[2]];
             let index = if let Some(&index) = colors.get(&color) {
                 index

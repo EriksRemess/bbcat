@@ -105,8 +105,10 @@ pub(crate) fn parse(data: &[u8], width: Option<usize>) -> Result<Screen, String>
                 "TundraDraw canvas exceeds the {MAX_TUNDRA_CELLS}-cell safety limit"
             ));
         }
-        cells.resize(required, Cell::default());
-        colors.resize(required, ([0; 3], [0; 3]));
+        if required > cells.len() {
+            cells.resize(required, Cell::default());
+            colors.resize(required, ([0; 3], [0; 3]));
+        }
         let index = row * width + column;
         // These byte values identify records when they occur at stream level.
         // TundraDraw's reference rendering leaves them blank as glyph values.
@@ -153,6 +155,24 @@ fn validate_position(row: usize, column: usize, width: usize) -> Result<(), Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn preserves_cells_and_colors_when_drawing_on_an_earlier_row() {
+        let mut data = SIGNATURE.to_vec();
+        for (row, character, rgb) in [(2_u32, b'A', [1, 2, 3]), (0, b'B', [4, 5, 6])] {
+            data.push(POSITION);
+            data.extend_from_slice(&row.to_be_bytes());
+            data.extend_from_slice(&0_u32.to_be_bytes());
+            data.extend_from_slice(&[FOREGROUND, character, 0]);
+            data.extend_from_slice(&rgb);
+        }
+        let screen = parse(&data, Some(2)).unwrap();
+        assert_eq!(screen.height, 3);
+        assert_eq!(screen.cell(0, 0).unwrap().character, u16::from(b'B'));
+        assert_eq!(screen.cell(0, 2).unwrap().character, u16::from(b'A'));
+        assert_eq!(screen.cell_colors(0, 0), Some(([4, 5, 6], [0; 3])));
+        assert_eq!(screen.cell_colors(0, 2), Some(([1, 2, 3], [0; 3])));
+    }
 
     #[test]
     fn decodes_positions_and_inherited_true_colors() {

@@ -61,7 +61,7 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
     let palette = if flags & FLAG_PALETTE != 0 {
         let bytes = take(data, &mut offset, PALETTE_LENGTH, "palette")?;
         let mut palette = [[0_u8; 3]; 16];
-        for (color, values) in palette.iter_mut().zip(bytes.chunks_exact(3)) {
+        for (color, values) in palette.iter_mut().zip(bytes.as_chunks::<3>().0.iter()) {
             for (component, &value) in color.iter_mut().zip(values) {
                 if value > 63 {
                     return Err(format!(
@@ -108,7 +108,9 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
             ));
         }
         encoded[..expected]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| (pair[0], pair[1]))
             .collect()
     };

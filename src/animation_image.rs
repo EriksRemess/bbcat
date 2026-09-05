@@ -1,7 +1,7 @@
 //! Dependency-free APNG and GIF encoders for rendered animation frames.
 //!
 //! Frames first use bbcat's indexed PNG rasterizer. APNG can retain those
-//! compressed IDAT streams directly; GIF unpacks the same stored-zlib rows and
+//! compressed IDAT streams directly; GIF unpacks the same zlib rows and
 //! writes a simple indexed-color LZW stream. Keeping one raster path means
 //! terminal,
 //! PNG, APNG, and GIF agree on fonts, palettes, and SAUCE letter spacing.
@@ -280,7 +280,6 @@ fn read_u32(data: &[u8], offset: usize) -> Result<u32, String> {
 }
 
 fn png_pixels(image: &FrameImage) -> Result<Vec<u8>, String> {
-    let raw = zlib_store_decode(&image.idat)?;
     let width = image.width as usize;
     let height = image.height as usize;
     let bit_depth = image.ihdr[8];
@@ -289,13 +288,10 @@ fn png_pixels(image: &FrameImage) -> Result<Vec<u8>, String> {
     } else {
         width.div_ceil(2)
     };
-    if raw.len()
-        != height
-            .checked_mul(row_bytes + 1)
-            .ok_or("PNG row size overflow")?
-    {
-        return Err("internal PNG scanlines have an unexpected length".to_owned());
-    }
+    let expected_size = height
+        .checked_mul(row_bytes + 1)
+        .ok_or("PNG row size overflow")?;
+    let raw = zlib_decode(&image.idat, expected_size)?;
     let mut pixels = Vec::with_capacity(width * height);
     for row in raw.chunks_exact(row_bytes + 1) {
         if row[0] != 0 {
@@ -317,47 +313,13 @@ fn png_pixels(image: &FrameImage) -> Result<Vec<u8>, String> {
     Ok(pixels)
 }
 
-fn zlib_store_decode(data: &[u8]) -> Result<Vec<u8>, String> {
-    if data.get(..2) != Some(&[0x78, 0x01]) {
+fn zlib_decode(data: &[u8], expected_size: usize) -> Result<Vec<u8>, String> {
+    // These streams come from our PNG encoder. Share the bounded Deflate
+    // decoder with ZIP input so stored and compressed blocks both work.
+    if data.len() < 6 || data.get(..2) != Some(&[0x78, 0x01]) {
         return Err("internal PNG uses an unexpected zlib stream".to_owned());
     }
-    let mut offset = 2;
-    let mut output = Vec::new();
-    loop {
-        let header = *data.get(offset).ok_or("truncated zlib block")?;
-        offset += 1;
-        if header & 0b110 != 0 {
-            return Err("internal PNG uses compressed DEFLATE blocks".to_owned());
-        }
-        let length = u16::from_le_bytes(
-            data.get(offset..offset + 2)
-                .ok_or("truncated zlib block length")?
-                .try_into()
-                .unwrap(),
-        ) as usize;
-        let complement = u16::from_le_bytes(
-            data.get(offset + 2..offset + 4)
-                .ok_or("truncated zlib block length")?
-                .try_into()
-                .unwrap(),
-        );
-        if complement != !(length as u16) {
-            return Err("invalid zlib stored block length".to_owned());
-        }
-        offset += 4;
-        let end = offset
-            .checked_add(length)
-            .ok_or("zlib block length overflow")?;
-        output.extend_from_slice(data.get(offset..end).ok_or("truncated zlib block data")?);
-        offset = end;
-        if header & 1 != 0 {
-            break;
-        }
-    }
-    if data.len() != offset + 4 {
-        return Err("internal PNG has an unexpected zlib trailer".to_owned());
-    }
-    Ok(output)
+    crate::archive::inflate(&data[2..data.len() - 4], expected_size)
 }
 
 fn gif_lzw(pixels: &[u8], minimum_code_size: u8) -> Vec<u8> {
@@ -496,6 +458,64 @@ mod tests {
             2
         );
         assert_eq!(gif.last(), Some(&0x3b));
+    }
+
+    #[test]
+    fn exports_gif_across_the_png_compression_threshold() {
+        for width in [15, 16, 80] {
+            let document = crate::decode_with_options(
+                b"\x1b[H\x1b[31m\xdb\x1b[H\x1b[32m\xdb",
+                crate::DecodeOptions {
+                    width: Some(width),
+                    file_name: None,
+                },
+            )
+            .unwrap();
+            let animation = document.animation.as_ref().unwrap();
+            let images = rendered_frames(animation, DEFAULT_ANIMATION_BAUD, 1).unwrap();
+            for (index, (image, _)) in images.iter().enumerate() {
+                let pixels = png_pixels(image).unwrap();
+                assert_eq!(pixels.len(), width * 8 * 16);
+                for row in pixels.chunks_exact(width * 8) {
+                    assert_eq!(&row[..8], &[index as u8 + 1; 8]);
+                    assert!(row[8..].iter().all(|&pixel| pixel == 0));
+                }
+            }
+            let gif = document.encode_gif(DEFAULT_ANIMATION_BAUD, 1).unwrap();
+            assert_eq!(&gif[..6], b"GIF89a");
+            assert_eq!(
+                u16::from_le_bytes(gif[6..8].try_into().unwrap()),
+                (width * 8) as u16
+            );
+        }
+    }
+
+    #[test]
+    fn exports_growing_ansi_frames_on_a_shared_canvas() {
+        let document = crate::decode(b"\x1b[HA\x1b[HB\r\nC").unwrap();
+        let frames = &document.animation.as_ref().unwrap().frames;
+        assert_eq!(frames.len(), 2);
+        assert!(frames.iter().all(|frame| frame.screen.height == 2));
+        assert_eq!(
+            frames[0].screen.cell(0, 1).unwrap().character,
+            u16::from(b' ')
+        );
+        assert_eq!(
+            frames[1].screen.cell(0, 1).unwrap().character,
+            u16::from(b'C')
+        );
+        let apng = document.encode_apng(DEFAULT_ANIMATION_BAUD, 1).unwrap();
+        assert_eq!(u32::from_be_bytes(apng[20..24].try_into().unwrap()), 32);
+        let gif = document.encode_gif(DEFAULT_ANIMATION_BAUD, 1).unwrap();
+        assert_eq!(u16::from_le_bytes(gif[8..10].try_into().unwrap()), 32);
+    }
+
+    #[test]
+    fn rejects_padding_beyond_the_animation_cell_budget() {
+        let mut data = b"A\x1b[H".repeat(5_000);
+        data.extend_from_slice(b"\x1b[2000;1HZ");
+        let error = crate::render(&data, Some(1)).unwrap_err();
+        assert!(error.contains("stored-cell safety limit"), "{error}");
     }
 
     #[test]

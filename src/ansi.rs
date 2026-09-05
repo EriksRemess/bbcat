@@ -393,6 +393,24 @@ pub(crate) fn parse_with_animation(
     // Repeated homes/full clears delimit ansimation frames. A lone snapshot is
     // merely the ordinary final state of a static ANSI file and is discarded.
     if frames.len() >= 2 {
+        // A later redraw can extend the canvas. Give every frame that same
+        // canvas, including initially blank rows, for animation image output.
+        let height = frames
+            .iter()
+            .map(|frame| frame.screen.height)
+            .max()
+            .unwrap();
+        let cells = width.checked_mul(height).ok_or_else(animation_too_large)?;
+        if cells
+            .checked_mul(frames.len())
+            .is_none_or(|total| total > MAX_CELLS)
+        {
+            return Err(animation_too_large());
+        }
+        for frame in &mut frames {
+            frame.screen.cells.resize(cells, Cell::default());
+            frame.screen.height = height;
+        }
         Ok(ParsedAnsi {
             screen: frames.last().unwrap().screen.clone(),
             frames,

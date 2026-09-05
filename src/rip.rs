@@ -603,7 +603,7 @@ impl Canvas {
                 }
             }
             intersections.sort_unstable();
-            for pair in intersections.chunks_exact(2) {
+            for pair in intersections.as_chunks::<2>().0 {
                 for x in pair[0]..=pair[1] {
                     self.fill_pixel(x, y);
                 }
@@ -1210,7 +1210,9 @@ mod tests {
             .raster
             .unwrap()
             .pixels
-            .chunks_exact(WIDTH)
+            .as_chunks::<WIDTH>()
+            .0
+            .iter()
             .enumerate()
             .filter_map(|(row, pixels)| pixels.iter().any(|&pixel| pixel != 0).then_some(row))
             .collect();

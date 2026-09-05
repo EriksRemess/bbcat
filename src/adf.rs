@@ -78,7 +78,9 @@ pub fn parse(data: &[u8], width_override: Option<usize>) -> Result<Screen, Strin
     }
     // DOS text memory uses one character byte followed by one packed color byte.
     let cells = screen_data
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| Cell {
             character: u16::from(pair[0]),
             foreground: pair[1] & 0x0f,

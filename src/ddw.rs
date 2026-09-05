@@ -329,6 +329,12 @@ fn paint_frame(
         let style = Style::parse(&item.color, item.line)?;
         let (foreground, background) = style.screen_colors();
         for (offset, character) in item.text.chars().enumerate() {
+            if character.is_control() {
+                return Err(format!(
+                    "DDW text on line {} contains a control character",
+                    item.line
+                ));
+            }
             let column = item.x.checked_add(offset).ok_or_else(|| {
                 format!("DDW element on line {} is outside its canvas", item.line)
             })?;

@@ -2,6 +2,86 @@ use std::{error::Error as StdError, path::Path, time::Duration};
 
 use bbcat::{Cell, DecodeOptions, Format};
 
+fn run_cli(arguments: &[&str], input: &[u8]) -> std::process::Output {
+    use std::{
+        io::Write,
+        process::{Command, Stdio},
+    };
+    let mut child = Command::new(env!("CARGO_BIN_EXE_bbcat"))
+        .args(arguments)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input).unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn rejects_ddw_display_controls_before_terminal_playback() {
+    for control in [r"\u001b", r"\u0007", r"\u009b", r"\n", r"\r", r"\t"] {
+        let input = format!(
+            "{{\"type\":\"frame\",\"id\":\"f\",\"duration_ms\":1}}\n\
+             {{\"x\":0,\"y\":0,\"text\":\"{control}MARKER\",\"frame\":\"f\"}}"
+        );
+        let result = run_cli(&["--baud", "1000000000", "-"], input.as_bytes());
+        assert!(!result.status.success(), "accepted {control}");
+        assert!(result.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("control character"));
+        assert!(!result.stderr.contains(&0x1b));
+    }
+}
+
+#[test]
+fn escapes_ddw_metadata_in_terminal_captions() {
+    let input = concat!(
+        "{\"type\":\"frame\",\"id\":\"f\",\"duration_ms\":1}\n",
+        "{\"type\":\"Title\",\"frame\":\"SAUCE_record\",\"text\":\"Café \\u001b]0;MARKER\\u0007\"}\n",
+        "{\"type\":\"Author\",\"frame\":\"SAUCE_record\",\"text\":\"\\u009b2J\"}\n",
+        "{\"x\":0,\"y\":0,\"text\":\"X\",\"frame\":\"f\"}"
+    );
+    let result = run_cli(&["--sauce", "-"], input.as_bytes());
+    assert!(result.status.success());
+    let output = String::from_utf8(result.stdout).unwrap();
+    assert!(output.contains(r"Café \u{1b}]0;MARKER\u{7}"));
+    assert!(output.contains(r"by \u{9b}2J"));
+    assert!(!output.contains("\x1b]"));
+    assert!(!output.contains('\u{009b}'));
+}
+
+#[test]
+fn escapes_archive_names_in_listings_and_errors() {
+    let name = "Café\x1b]0;MARKER\x07\n\u{009b}.rip";
+    let archive = stored_zip(name, b"not a RIP header");
+    // Library extraction must still use the exact original name.
+    assert_eq!(bbcat::list_archive_artworks(&archive).unwrap(), [name]);
+    assert!(bbcat::extract_archive_artwork(&archive, name).is_ok());
+    let listed = run_cli(&["--list-archive", "-"], &archive);
+    assert!(listed.status.success());
+    assert_eq!(
+        String::from_utf8(listed.stdout).unwrap(),
+        "Café\\u{1b}]0;MARKER\\u{7}\\n\\u{9b}.rip\n"
+    );
+    let rendered = run_cli(&["-"], &archive);
+    assert!(!rendered.status.success());
+    let error = String::from_utf8(rendered.stderr).unwrap();
+    assert!(!error.contains('\x1b'));
+    assert!(!error.contains('\u{009b}'));
+    assert!(error.contains(r"\u{1b}]0;MARKER"));
+}
+
+#[test]
+fn continues_after_a_file_cannot_be_rendered_as_text() {
+    let path = std::env::temp_dir().join(format!("bbcat-sweep-good-{}.ans", std::process::id()));
+    std::fs::write(&path, b"GOOD_FILE_MARKER").unwrap();
+    let result = run_cli(&["-", path.to_str().unwrap()], b"!|c04|X0000|#");
+    std::fs::remove_file(path).unwrap();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("UTF-8 output is not useful"));
+    assert!(String::from_utf8_lossy(&result.stdout).contains("GOOD_FILE_MARKER"));
+}
+
 fn stored_zip(name: &str, data: &[u8]) -> Vec<u8> {
     fn crc32(data: &[u8]) -> u32 {
         let mut crc = 0xffff_ffff_u32;

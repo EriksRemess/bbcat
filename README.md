@@ -73,6 +73,7 @@ or an added library dependency. Encrypted, multi-disk, and ZIP64 archives are
 not supported. Use `--list-archive` to list supported entries and
 `archive.zip:entry/name.ans` to open one explicitly. macOS metadata, hidden
 files, `Thumbs.db`, and `desktop.ini` are omitted from artwork selection.
+Control characters in displayed entry names and diagnostics are escaped.
 
 ## Library use
 
@@ -261,6 +262,7 @@ creation date as a compact gallery-style caption below the rendered art. Files
 without descriptive SAUCE metadata render without a caption. The option works
 with UTF-8 and Kitty output, including multiple input files, but cannot be
 combined with image output.
+Control characters in captions are displayed as escapes.
 
 ## 2x scaling
 
@@ -306,7 +308,8 @@ always retains its full dimensions.
   otherwise bbcat infers the canvas from the positioned text. Terminal playback
   preserves Unicode glyphs and 16- and 256-color styles; graphical output uses
   the same color indexes with a CP437 glyph approximation where necessary.
-  APNG and GIF retain every frame.
+  APNG and GIF retain every frame. Positioned text must contain display
+  characters; terminal controls, tabs, and embedded line breaks are rejected.
 - TundraDraw (`.TND`) TUNDRA24 character art with absolute cursor positioning
   and independent 24-bit foreground and background colors. SAUCE supplies the
   width and VGA letter spacing when present; otherwise the canvas is 80 columns.
