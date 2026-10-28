@@ -133,7 +133,7 @@ fn rendered_frames(
     Ok(result)
 }
 
-fn frame_duration(frame: &AnimationFrame, baud: u64) -> Duration {
+pub(crate) fn frame_duration(frame: &AnimationFrame, baud: u64) -> Duration {
     match frame.duration {
         Some(duration) => scale_duration(duration, baud),
         None => transmission_time(frame.source_bytes, baud),

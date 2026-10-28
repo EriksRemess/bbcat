@@ -64,10 +64,12 @@ pub use asciimation::{
     Asciimation, AsciimationFrame, parse as parse_asciimation, write as write_asciimation,
 };
 pub use kitty::{
-    write_screen, write_screen_cropped, write_screen_fit, write_screen_scaled,
-    write_screen_scaled_cropped, write_screen_scaled_fit, write_screen_slow,
-    write_screen_slow_cropped, write_screen_slow_fit, write_screen_slow_scaled,
-    write_screen_slow_scaled_cropped, write_screen_slow_scaled_fit,
+    write_animation_scaled as write_kitty_animation_scaled,
+    write_animation_scaled_cropped as write_kitty_animation_scaled_cropped,
+    write_animation_scaled_fit as write_kitty_animation_scaled_fit, write_screen,
+    write_screen_cropped, write_screen_fit, write_screen_scaled, write_screen_scaled_cropped,
+    write_screen_scaled_fit, write_screen_slow, write_screen_slow_cropped, write_screen_slow_fit,
+    write_screen_slow_scaled, write_screen_slow_scaled_cropped, write_screen_slow_scaled_fit,
 };
 pub use png::{
     VGA_PALETTE, XTERM_256_PALETTE, encode_screen, encode_screen_fit, encode_screen_scaled,

@@ -428,7 +428,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
               <thead><tr><th>Mode</th><th>Option</th><th>Behavior</th></tr></thead>
               <tbody>
                 <tr><td>UTF-8</td><td>default</td><td>Converts CP437 characters to Unicode and emits 24-bit ANSI colors.</td></tr>
-                <tr><td>Kitty</td><td><code>--kitty</code></td><td>Renders bitmap glyphs through Kitty graphics, cropping at the terminal's right edge.</td></tr>
+                <tr><td>Kitty</td><td><code>--kitty</code></td><td>Renders bitmap glyphs through Kitty graphics, cropping at the terminal's right edge; animated ANSI and DDW files loop in the terminal.</td></tr>
                 <tr><td>PNG</td><td><code>-o FILE</code><br><code>--output FILE</code></td><td>Writes one PNG, preserving TundraDraw 24-bit colors; use <code>-</code> to write it to standard output.</td></tr>
                 <tr><td>APNG</td><td><code>--apng FILE</code></td><td>Writes a looping indexed-color animated PNG from an ANSI or DDW animation.</td></tr>
                 <tr><td>GIF</td><td><code>--gif FILE</code></td><td>Writes a looping indexed-color animated GIF from an ANSI or DDW animation.</td></tr>
@@ -439,7 +439,7 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
 
           <h3>Terminal output</h3>
           <p>UTF-8 output is intended for character art using the standard CP437 glyph set. Use Kitty or PNG output for RIPscrip, XBin 512-character fonts, or artwork whose embedded bitmap font must be reproduced exactly.</p>
-          <p>Kitty mode requires terminal stdout and a terminal that answers bbcat's Kitty graphics protocol probe. <a href="https://sw.kovidgoyal.net/kitty/">Kitty</a> and <a href="https://ghostty.org/">Ghostty</a> are supported on Linux and macOS, along with <a href="https://iterm2.com/">iTerm2</a> on macOS. Long images are emitted in strips so they remain available in terminal scrollback.</p>
+          <p>Kitty mode requires terminal stdout and a terminal that answers bbcat's Kitty graphics protocol probe. <a href="https://sw.kovidgoyal.net/kitty/">Kitty</a> and <a href="https://ghostty.org/">Ghostty</a> are supported on Linux and macOS, along with <a href="https://iterm2.com/">iTerm2</a> on macOS. Long static images are emitted in strips so they remain available in terminal scrollback.</p>
 
           <h3>Image output</h3>
           <p>PNG, APNG, and GIF modes require exactly one input file. Use <code>-</code> as the output path to write the image to standard output. Choose only one image output mode; none can be combined with <code>--kitty</code>, <code>--slow</code>, <code>--delay</code>, or <code>--sauce</code>. Static PNG output cannot use <code>--baud</code>; APNG and GIF use it for frame timing.</p>
@@ -454,9 +454,12 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
 <span class="prompt">$</span> bbcat --baud 4x animation.ans</code></pre>
           <p><code>2400</code>, <code>9600</code>, <code>14400</code>, <code>28800</code>, <code>38400</code>, <code>57600</code>, <code>115200</code> (<code>1X</code>), <code>2X</code> (230400), and <code>4X</code> (460800) are suggested familiar rates. Run <code>bbcat --baud</code> to print the list. Any positive numeric rate is accepted, as is an <code>Nx</code> multiplier of 115200.</p>
           <p>Animated playback uses each frame's source byte count to determine how long it remains visible. DDW uses its source-defined per-frame duration at <code>1X</code>, scaled by the selected rate. Static art uses the same smooth row-reveal effect as <code>--slow</code>: <code>1X</code> is 25 milliseconds per row.</p>
-          <p>Terminals with synchronized-output support reveal each redraw atomically. Playback preserves CP437 text and source-defined 16-color, 256-color, and true-color SGR sequences. An animation that explicitly homes to the terminal's top-left clears the canvas before playback; relative animations leave the terminal intact. Both retain their final frame and return the prompt below it.</p>
-          <div class="callout"><p>Redirected UTF-8 output and Kitty or PNG output render the last visible state instead of replaying the animation. <code>--apng</code> and <code>--gif</code> retain every detected frame and loop forever.</p></div>
-          <p>Supplying <code>--baud</code> explicitly replays an animation or uses the static row reveal even when UTF-8 output is redirected. It cannot be combined with Kitty, static PNG, <code>--slow</code>, or <code>--delay</code>.</p>
+          <p>For UTF-8 playback, terminals with synchronized-output support reveal each redraw atomically. Playback preserves CP437 text and source-defined 16-color, 256-color, and true-color SGR sequences. An animation that explicitly homes to the terminal's top-left clears the canvas before playback; relative animations leave the terminal intact. Both retain their final frame and return the prompt below it.</p>
+          <div class="callout"><p>Redirected UTF-8 output and static PNG output render the last visible state instead of replaying the animation. Kitty output, <code>--apng</code>, and <code>--gif</code> retain every detected frame and loop forever.</p></div>
+          <p>Supplying <code>--baud</code> explicitly replays an animation or uses the static row reveal even when UTF-8 output is redirected. It cannot be combined with static PNG, <code>--slow</code>, or <code>--delay</code>.</p>
+          <p><code>--kitty</code> uploads animation frames once and lets the terminal play them after bbcat exits, with the shell prompt below the canvas. Playback requires Kitty animation support, such as Kitty 0.20+ or <a href="https://ghostty.org/docs/install/release-notes/1-4-0">Ghostty 1.4+</a>. The graphics probe checks basic image support only; older terminals may show a still frame.</p>
+          <pre><code><span class="prompt">$</span> bbcat --kitty --baud 2x animation.ans</code></pre>
+          <p><code>--baud</code> controls animation speed, and <code>--2x</code> and <code>--fit</code> apply to the entire canvas. Animated output uses one canvas rather than strips, so <code>--chunk-lines</code> applies only to static artwork. Frame delays are rounded down to milliseconds, with a minimum of 1 ms and a maximum of 2,147,483,647 ms per frame. For static Kitty art, <code>--baud</code> controls row reveal as it does for UTF-8 output.</p>
 
           <h3>ASCIImation text streams</h3>
           <p>The plain-text streams published by <a href="https://asciimation.co.nz/">asciimation.co.nz</a> contain no terminal control sequences, so bbcat does not detect them automatically. Play one explicitly:</p>
@@ -512,12 +515,12 @@ fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
               <thead><tr><th>Option</th><th>Description</th></tr></thead>
               <tbody>
                 <tr><td><code>-w COLS</code><br><code>--width COLS</code></td><td>Override text width. ANSI/text and TundraDraw dimensions are limited by the decoded-cell safety budget. DDW and XBin must match their declared width; untagged DDW may be widened but not narrowed. ADF must be 80 and RIPscrip must be 640.</td></tr>
-                <tr><td><code>--chunk-lines ROWS</code></td><td>Set Kitty image-strip height from 1 through 256 character rows. The default is <code>$LINES - 1</code>, clamped to 1 through 64, or 24 when <code>$LINES</code> is unavailable.</td></tr>
-                <tr><td><code>--kitty</code></td><td>Use Kitty graphics instead of colored UTF-8.</td></tr>
+                <tr><td><code>--chunk-lines ROWS</code></td><td>Set static Kitty image-strip height from 1 through 256 character rows. The default is <code>$LINES - 1</code>, clamped to 1 through 64, or 24 when <code>$LINES</code> is unavailable.</td></tr>
+                <tr><td><code>--kitty</code></td><td>Use Kitty graphics instead of colored UTF-8; animated ANSI and DDW files loop in the terminal.</td></tr>
                 <tr><td><code>--fit</code></td><td>Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row.</td></tr>
                 <tr><td><code>--slow</code></td><td>Reveal one character row at a time using a 35 ms delay.</td></tr>
                 <tr><td><code>--delay MS</code></td><td>Enable slow mode with a delay from 1 through 10,000 ms per row.</td></tr>
-                <tr><td><code>--baud RATE</code></td><td>Control ANSI source-byte timing, DDW native frame timing, static ANSI/text row reveal, or APNG/GIF timing. <code>1X</code> is 25 ms per row. Run <code>bbcat --baud</code> alone for suggested values.</td></tr>
+                <tr><td><code>--baud RATE</code></td><td>Control ANSI source-byte timing, DDW native frame timing, static ANSI/text row reveal, or Kitty/APNG/GIF timing. <code>1X</code> is 25 ms per row. Run <code>bbcat --baud</code> alone for suggested values.</td></tr>
                 <tr><td><code>--2x</code></td><td>Double Kitty or image output width and height. Requires <code>--kitty</code>, <code>--output</code>, <code>--apng</code>, or <code>--gif</code>.</td></tr>
                 <tr><td><code>--sauce</code></td><td>Show available SAUCE title, author, group, and creation date below the artwork.</td></tr>
                 <tr><td><code>--info</code></td><td>Print detected format, dimensions, animation frames, rendering capabilities, and SAUCE metadata as JSON. Requires exactly one input and cannot be combined with rendering or output options.</td></tr>

@@ -141,9 +141,6 @@ fn run() -> Result<ExitCode, String> {
     if image_output && options.kitty {
         return Err("image output and --kitty cannot be used together".to_owned());
     }
-    if options.kitty && options.baud.is_some() {
-        return Err("--baud cannot be used with --kitty".to_owned());
-    }
     if options.delay.is_some() && options.baud.is_some() {
         return Err("--slow/--delay and --baud cannot be used together".to_owned());
     }
@@ -272,9 +269,38 @@ fn run() -> Result<ExitCode, String> {
                 .map_err(|error| format!("{file}: {error}"))?;
                 write_png(&mut stdout, path, &png)?;
             } else if options.kitty {
-                // Kitty output transports PNG chunks inside terminal escape sequences;
-                // fit/crop, reveal delay, and scale select the appropriate wrapper.
-                if let Some(delay) = options.delay {
+                if let Some(animation) = &document.animation {
+                    let baud = options.baud.unwrap_or(bbcat::DEFAULT_ANIMATION_BAUD);
+                    if let Some(columns) = terminal_columns {
+                        if options.fit {
+                            bbcat::write_kitty_animation_scaled_fit(
+                                &mut stdout,
+                                animation,
+                                baud,
+                                options.scale,
+                                columns,
+                            )
+                        } else {
+                            bbcat::write_kitty_animation_scaled_cropped(
+                                &mut stdout,
+                                animation,
+                                baud,
+                                options.scale,
+                                columns,
+                            )
+                        }
+                    } else {
+                        bbcat::write_kitty_animation_scaled(
+                            &mut stdout,
+                            animation,
+                            baud,
+                            options.scale,
+                        )
+                    }
+                    .map_err(|error| format!("{file}: {error}"))?;
+                } else if let Some(delay) =
+                    options.delay.or_else(|| options.baud.map(baud_row_delay))
+                {
                     if let Some(columns) = terminal_columns {
                         if options.fit {
                             bbcat::write_screen_slow_scaled_fit(
@@ -854,8 +880,8 @@ Arguments:
 
 Options:
   -w, --width COLS          Override text width; must match fixed binary/vector widths
-      --chunk-lines ROWS    Kitty image height (default: LINES - 1, or 24)
-      --kitty               Use Kitty graphics instead of UTF-8 text
+      --chunk-lines ROWS    Static Kitty strip height (default: LINES - 1, or 24)
+      --kitty               Use Kitty graphics; animations loop in the terminal
       --fit                 Scale complete Kitty art to terminal width instead of cropping
       --slow                Reveal character art one row at a time (35 ms/row)
       --delay MS            Set the slow-mode row delay (1..=10000)

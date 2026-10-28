@@ -2,8 +2,9 @@
 //!
 //! Kitty does not receive the character grid directly. This module first asks
 //! the PNG backend for an image, base64-encodes that PNG, and wraps it in Kitty
-//! APC escape sequences. Large artwork is split both vertically (separate PNGs)
-//! and into protocol-sized transport chunks.
+//! APC escape sequences. Static artwork is split vertically (separate PNGs).
+//! Animations use a single canvas with terminal-driven playback. All image
+//! payloads are split into protocol-sized transport chunks.
 
 use std::{
     io::{self, Write},
@@ -11,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{Screen, png};
+use crate::{Animation, Screen, animation_image::frame_duration, png};
 
 const INPUT_CHUNK: usize = 3072;
 
@@ -23,6 +24,119 @@ enum WidthMode {
     Crop(usize),
     /// Resize both axes so the complete image preserves its aspect ratio.
     Fit(usize),
+}
+
+/// Uploads a looping Kitty animation at the requested baud rate and pixel scale.
+///
+/// Playback is terminal-driven and continues after this function returns. Each
+/// frame must have the same pixel dimensions. The cursor advances below the
+/// canvas once, and `Animation::clear_on_finish` is ignored because playback
+/// loops indefinitely. Requires Kitty animation support (e.g. Ghostty 1.4+).
+pub fn write_animation_scaled<W: Write>(
+    output: &mut W,
+    animation: &Animation,
+    baud: u64,
+    scale: usize,
+) -> io::Result<()> {
+    write_animation_inner(output, animation, baud, scale, WidthMode::Full)
+}
+
+/// Uploads a looping Kitty animation cropped to a terminal column count.
+pub fn write_animation_scaled_cropped<W: Write>(
+    output: &mut W,
+    animation: &Animation,
+    baud: u64,
+    scale: usize,
+    columns: usize,
+) -> io::Result<()> {
+    write_animation_inner(output, animation, baud, scale, WidthMode::Crop(columns))
+}
+
+/// Uploads a looping Kitty animation fitted to a terminal column count.
+pub fn write_animation_scaled_fit<W: Write>(
+    output: &mut W,
+    animation: &Animation,
+    baud: u64,
+    scale: usize,
+    columns: usize,
+) -> io::Result<()> {
+    write_animation_inner(output, animation, baud, scale, WidthMode::Fit(columns))
+}
+
+fn write_animation_inner<W: Write>(
+    output: &mut W,
+    animation: &Animation,
+    baud: u64,
+    scale: usize,
+    width_mode: WidthMode,
+) -> io::Result<()> {
+    let invalid = |message| io::Error::new(io::ErrorKind::InvalidInput, message);
+    if baud == 0 {
+        return Err(invalid("animation baud rate must be non-zero"));
+    }
+    if scale == 0 {
+        return Err(invalid("output scale must be non-zero"));
+    }
+    if matches!(width_mode, WidthMode::Crop(0) | WidthMode::Fit(0)) {
+        return Err(invalid("Kitty placement width must be non-zero"));
+    }
+    let first = animation
+        .frames
+        .first()
+        .ok_or_else(|| invalid("animation contains no frames"))?;
+    for frame in &animation.frames {
+        frame
+            .screen
+            .validate()
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        if frame.screen.pixel_dimensions() != first.screen.pixel_dimensions() {
+            return Err(invalid("animation frames must share pixel dimensions"));
+        }
+        if let WidthMode::Fit(columns) = width_mode {
+            validate_fit_height(&frame.screen, scale, columns, frame.screen.height)?;
+        }
+    }
+
+    // Image numbers (I), unlike explicit IDs (i), allocate a new image on each
+    // upload. Repeated calls therefore preserve older animations in scrollback.
+    // All following commands address the newest image with this number.
+    const NUMBER: u32 = 1;
+    let image = encode_image(&first.screen, 0, first.screen.height, scale, width_mode)?;
+    let columns = image_columns(&image)?;
+    let rows = image_rows(&image)?;
+    write_image_data(
+        output,
+        &image,
+        &format!("a=T,f=100,I={NUMBER},c={columns},r={rows},C=1"),
+        false,
+    )?;
+    // The root frame's gap must be set separately from its image upload.
+    write!(
+        output,
+        "\x1b_Ga=a,I={NUMBER},r=1,z={},q=2;\x1b\\",
+        frame_gap(first, baud)
+    )?;
+    for frame in animation.frames.iter().skip(1) {
+        let image = encode_image(&frame.screen, 0, frame.screen.height, scale, width_mode)?;
+        write_image_data(
+            output,
+            &image,
+            &format!("a=f,f=100,I={NUMBER},X=1,z={}", frame_gap(frame, baud)),
+            true,
+        )?;
+    }
+    // Start only once every frame is uploaded; v=1 means loop forever.
+    write!(output, "\x1b_Ga=a,I={NUMBER},s=3,v=1,c=1,q=2;\x1b\\")?;
+    advance_rows(output, rows)?;
+    output.flush()
+}
+
+fn frame_gap(frame: &crate::AnimationFrame, baud: u64) -> u32 {
+    // Zero means "unspecified" in Kitty, and negative gaps skip the frame.
+    // Clamp to a visible millisecond and to the protocol's signed 32-bit limit.
+    frame_duration(frame, baud)
+        .as_millis()
+        .clamp(1, i32::MAX as u128) as u32
 }
 
 /// Writes a screen through the Kitty graphics protocol in vertical chunks.
@@ -372,6 +486,20 @@ fn write_image<W: Write>(
     columns: usize,
     rows: usize,
 ) -> io::Result<()> {
+    write_image_data(
+        output,
+        image,
+        &format!("a=T,f=100,c={columns},r={rows},C=1"),
+        false,
+    )
+}
+
+fn write_image_data<W: Write>(
+    output: &mut W,
+    image: &[u8],
+    control: &str,
+    animation_frame: bool,
+) -> io::Result<()> {
     // Kitty's direct-data transmission (`a=T`, `f=100`) carries a PNG. `m=1`
     // announces another transport chunk and `m=0` finishes the image. APC is
     // introduced by ESC _ G and terminated by ST (ESC backslash).
@@ -379,10 +507,9 @@ fn write_image<W: Write>(
     for (index, bytes) in image.chunks(INPUT_CHUNK).enumerate() {
         let more = u8::from(index + 1 < chunks);
         if index == 0 {
-            write!(
-                output,
-                "\x1b_Ga=T,f=100,c={columns},r={rows},C=1,q=2,m={more};"
-            )?;
+            write!(output, "\x1b_G{control},q=2,m={more};")?;
+        } else if animation_frame {
+            write!(output, "\x1b_Ga=f,q=2,m={more};")?;
         } else {
             write!(output, "\x1b_Gq=2,m={more};")?;
         }
@@ -421,6 +548,177 @@ fn base64<W: Write>(output: &mut W, input: &[u8]) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::Cell;
+
+    fn animation() -> Animation {
+        let screen = crate::decode(b"AB\nCD").unwrap().screen;
+        let mut second = screen.clone();
+        second.cells[0].character = u16::from(b'Z');
+        second.cells[0].foreground = 196;
+        Animation {
+            frames: vec![
+                crate::AnimationFrame {
+                    screen,
+                    source_bytes: 11_520,
+                    duration: None,
+                    utf8: false,
+                    data: Vec::new(),
+                },
+                crate::AnimationFrame {
+                    screen: second,
+                    source_bytes: 0,
+                    duration: Some(Duration::from_millis(250)),
+                    utf8: true,
+                    data: Vec::new(),
+                },
+            ],
+            clear_on_finish: true,
+        }
+    }
+
+    fn commands(output: &[u8]) -> Vec<(&str, &str)> {
+        std::str::from_utf8(output)
+            .unwrap()
+            .split("\x1b_G")
+            .skip(1)
+            .map(|part| {
+                part.split_once("\x1b\\")
+                    .unwrap()
+                    .0
+                    .split_once(';')
+                    .unwrap()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn animation_uploads_complete_frames_and_starts_a_terminal_loop() {
+        let animation = animation();
+        let mut output = Vec::new();
+        write_animation_scaled(&mut output, &animation, 57_600, 1).unwrap();
+        let commands = commands(&output);
+        assert!(commands[0].0.starts_with("a=T,f=100,I=1,c=2,r=2,C=1"));
+        assert_eq!(commands[1], ("a=a,I=1,r=1,z=200,q=2", ""));
+        assert!(commands[2].0.starts_with("a=f,f=100,I=1,X=1,z=500"));
+        assert_eq!(commands.last().unwrap(), &("a=a,I=1,s=3,v=1,c=1,q=2", ""));
+        assert!(output.ends_with(b"\r\n\r\n"));
+        // Each PNG uses its own palette/depth, including the later 256-color frame.
+        for (index, frame) in animation.frames.iter().enumerate() {
+            let png = encode_image(&frame.screen, 0, 2, 1, WidthMode::Full).unwrap();
+            let mut encoded = Vec::new();
+            base64(&mut encoded, &png).unwrap();
+            assert_eq!(commands[index * 2].1.as_bytes(), encoded);
+        }
+    }
+
+    #[test]
+    fn animation_continuations_keep_the_frame_action_and_transport_limits() {
+        let mut animation = animation();
+        let mut screen = crate::decode(b"X").unwrap().screen;
+        screen.width = 80;
+        screen.height = 24;
+        screen.cells = vec![Cell::default(); 80 * 24];
+        // Vary glyphs and colors so PNG compression cannot collapse the upload
+        // into a single transport chunk.
+        let mut random = 42_u32;
+        for cell in &mut screen.cells {
+            random = random.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            cell.character = u16::from((random >> 24) as u8);
+            cell.foreground = (random >> 16) as u8;
+            cell.background = (random >> 8) as u8;
+        }
+        for frame in &mut animation.frames {
+            frame.screen = screen.clone();
+        }
+        let mut output = Vec::new();
+        write_animation_scaled(&mut output, &animation, 115_200, 1).unwrap();
+        let commands = commands(&output);
+        let mut payloads = Vec::new();
+        let mut current = String::new();
+        let mut frame_upload = false;
+        let mut continuations = 0;
+        for (header, payload) in commands {
+            assert!(header.contains("q=2"));
+            if payload.is_empty() {
+                continue;
+            }
+            if current.is_empty() {
+                frame_upload = header.starts_with("a=f,");
+            } else {
+                continuations += 1;
+                assert_eq!(header.starts_with("a=f,"), frame_upload);
+                assert!(!header.contains("I="));
+                assert!(!header.contains("f=100"));
+            }
+            assert!(payload.len() <= 4096);
+            assert_eq!(payload.len() % 4, 0);
+            current.push_str(payload);
+            if header.ends_with("m=0") {
+                payloads.push(std::mem::take(&mut current));
+            } else {
+                assert!(header.ends_with("m=1"));
+                assert_eq!(payload.len(), 4096);
+            }
+        }
+        assert!(continuations > 0);
+        assert!(current.is_empty());
+        assert_eq!(payloads.len(), 2);
+        let png = encode_image(&screen, 0, screen.height, 1, WidthMode::Full).unwrap();
+        let mut encoded = Vec::new();
+        base64(&mut encoded, &png).unwrap();
+        for payload in payloads {
+            assert_eq!(payload.as_bytes(), encoded);
+        }
+    }
+
+    #[test]
+    fn animation_crop_and_fit_use_one_scaled_canvas() {
+        for (mode, expected) in [
+            (WidthMode::Crop(2), "c=2,r=4"),
+            (WidthMode::Fit(2), "c=2,r=2"),
+        ] {
+            let mut output = Vec::new();
+            let animation = animation();
+            write_animation_inner(&mut output, &animation, 115_200, 2, mode).unwrap();
+            let commands = commands(&output);
+            assert!(commands[0].0.contains(expected));
+            // Only one placement is made, regardless of the number of frames.
+            assert_eq!(
+                commands
+                    .iter()
+                    .filter(|(header, _)| header.starts_with("a=T,"))
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn animation_gaps_are_visible_and_fit_the_protocol_integer() {
+        let mut frame = animation().frames.remove(0);
+        assert_eq!(frame_gap(&frame, 115_200), 100);
+        assert_eq!(frame_gap(&frame, 230_400), 50);
+        frame.source_bytes = 0;
+        assert_eq!(frame_gap(&frame, 115_200), 1);
+        frame.duration = Some(Duration::MAX);
+        assert_eq!(frame_gap(&frame, 1), i32::MAX as u32);
+        frame.duration = Some(Duration::ZERO);
+        assert_eq!(frame_gap(&frame, 115_200), 1);
+    }
+
+    #[test]
+    fn invalid_animations_fail_before_writing_graphics() {
+        let mut output = Vec::new();
+        let mut animation = animation();
+        assert!(write_animation_scaled(&mut output, &animation, 0, 1).is_err());
+        assert!(write_animation_scaled(&mut output, &animation, 1, 0).is_err());
+        assert!(write_animation_scaled_cropped(&mut output, &animation, 1, 1, 0).is_err());
+        assert!(write_animation_scaled_fit(&mut output, &animation, 1, 1, 0).is_err());
+        animation.frames[1].screen = crate::decode(b"X").unwrap().screen;
+        assert!(write_animation_scaled(&mut output, &animation, 1, 1).is_err());
+        animation.frames.clear();
+        assert!(write_animation_scaled(&mut output, &animation, 1, 1).is_err());
+        assert!(output.is_empty());
+    }
 
     #[test]
     fn base64_matches_rfc4648_examples() {

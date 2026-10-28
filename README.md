@@ -60,6 +60,7 @@ bbcat --apng animation.png animation.ans
 bbcat --gif animation.gif animation.ans
 bbcat --info animation.ans
 bbcat --2x --kitty art.ans
+bbcat --kitty --baud 2x animation.ans
 bbcat --sauce art.ans
 bbcat --baud 4x animation.ans
 bbcat --asciimation ~/Downloads/starwars.txt
@@ -161,7 +162,7 @@ a separate bbcat installation are not required.
 | Mode | Option | Behavior |
 | --- | --- | --- |
 | UTF-8 | default | Converts CP437 characters to Unicode and emits 24-bit ANSI colors. |
-| Kitty | `--kitty` | Renders bitmap glyphs through Kitty graphics, cropping at the terminal's right edge. |
+| Kitty | `--kitty` | Renders bitmap glyphs through Kitty graphics, cropping at the terminal's right edge; animated ANSI and DDW files loop in the terminal. |
 | PNG | `-o FILE`, `--output FILE` | Writes one PNG, preserving TundraDraw 24-bit colors; use `-` to write it to standard output. |
 | APNG | `--apng FILE` | Writes a looping indexed-color animated PNG from an ANSI or DDW animation. |
 | GIF | `--gif FILE` | Writes a looping indexed-color animated GIF from an ANSI or DDW animation. |
@@ -170,7 +171,7 @@ a separate bbcat installation are not required.
 Kitty mode requires terminal stdout and a terminal that answers bbcat's Kitty
 graphics protocol probe. [Kitty](https://sw.kovidgoyal.net/kitty/) and
 [Ghostty](https://ghostty.org/) are supported on Linux and macOS, along with
-[iTerm2](https://iterm2.com/) on macOS. Long images are emitted in strips so
+[iTerm2](https://iterm2.com/) on macOS. Long static images are emitted in strips so
 they remain available in terminal scrollback. Add `--fit` to scale the complete
 image to the terminal width instead of cropping. If that would make the image
 shorter than one terminal row, bbcat reports the minimum required terminal
@@ -207,7 +208,7 @@ frame's source byte count to determine how long it remains visible. DDW uses
 its source-defined per-frame duration at `1X`, scaled proportionally by the
 selected rate. Static art uses the same smooth row reveal as `--slow`: `1X` is
 25 milliseconds per row, with lower rates slower and higher rates faster.
-Terminals with
+For UTF-8 playback, terminals with
 synchronized-output support reveal each redraw atomically to avoid visible
 row-by-row tearing. Animation playback preserves CP437 text and source-defined
 16-color, 256-color, and true-color SGR sequences. An animation that explicitly
@@ -215,13 +216,25 @@ homes to the terminal's top-left clears the canvas before playback; relative
 animations leave the terminal intact. Both retain their final frame and return
 the shell prompt below it.
 
-Redirected UTF-8 output and Kitty or PNG output render the last visible state
-instead of replaying the animation. `--apng` and `--gif` retain every detected
-frame and loop forever. Their frame delays use the same source-byte timing as
-terminal ansimation, or DDW's native durations, with `--baud` scaling either
-one. Supplying `--baud` explicitly replays an animation or uses the static row
-reveal even when UTF-8 output is redirected. `--baud` cannot be combined with
-Kitty, static PNG, `--slow`, or `--delay`.
+Redirected UTF-8 output and static PNG output render the last visible state
+instead of replaying the animation. Kitty output, `--apng`, and `--gif` retain
+every detected frame and loop forever. Their frame delays use the same
+source-byte timing as terminal ansimation, or DDW's native durations, with
+`--baud` scaling either one. Supplying `--baud` explicitly replays an animation
+or uses the static row reveal even when UTF-8 output is redirected. `--baud`
+cannot be combined with static PNG, `--slow`, or `--delay`.
+
+`--kitty` uploads animation frames once and lets the terminal play them after
+bbcat exits, with the shell prompt below the canvas. Playback requires Kitty
+animation support, such as Kitty 0.20+ or
+[Ghostty 1.4+](https://ghostty.org/docs/install/release-notes/1-4-0).
+The graphics probe checks basic image support only; older terminals may show
+a still frame. `--baud` controls animation speed, and `--2x` and `--fit` apply
+to the entire canvas. Animated output uses one canvas rather than strips, so
+`--chunk-lines` applies only to static artwork. Frame delays are rounded down
+to milliseconds, with a minimum of 1 ms and a maximum of 2,147,483,647 ms per
+frame. For static Kitty art, `--baud` controls row reveal as it does for UTF-8
+output.
 
 ### ASCIImation text streams
 
@@ -346,12 +359,12 @@ inputs, bbcat reports a rejected file and continues with the remaining files.
 | Option | Description |
 | --- | --- |
 | `-w COLS`, `--width COLS` | Override text width. ANSI/text and TundraDraw dimensions are limited by the decoded-cell safety budget. DDW and XBin must match their declared width; an untagged DDW may be widened but not narrowed. ADF must be 80, and RIPscrip must be 640. |
-| `--chunk-lines ROWS` | Set the number of character rows in each Kitty image strip, from 1 through 256. The default is `$LINES - 1`, clamped to 1 through 64, or 24 when `$LINES` is unavailable. |
-| `--kitty` | Use Kitty graphics instead of colored UTF-8. |
+| `--chunk-lines ROWS` | Set the number of character rows in each static Kitty image strip, from 1 through 256. The default is `$LINES - 1`, clamped to 1 through 64, or 24 when `$LINES` is unavailable. |
+| `--kitty` | Use Kitty graphics instead of colored UTF-8; animated ANSI and DDW files loop in the terminal. |
 | `--fit` | Scale complete Kitty output to terminal width instead of cropping. Errors if the result would be shorter than one terminal row. |
 | `--slow` | Reveal one character row at a time using a 35 ms delay. |
 | `--delay MS` | Enable slow mode with a delay from 1 through 10,000 ms per row. |
-| `--baud RATE` | Play ANSI animation by source-byte timing or DDW animation by native frame timing, set static ANSI/text row-reveal speed, or control APNG/GIF frame timing. `1X` is 25 ms/row; rates scale it proportionally. Run `--baud` alone for familiar suggested values. |
+| `--baud RATE` | Play ANSI animation by source-byte timing or DDW animation by native frame timing, set static ANSI/text row-reveal speed, or control Kitty/APNG/GIF frame timing. `1X` is 25 ms/row; rates scale it proportionally. Run `--baud` alone for familiar suggested values. |
 | `--2x` | Double Kitty or image output width and height. Requires `--kitty`, `--output FILE`, `--apng FILE`, or `--gif FILE`. |
 | `--sauce` | Show the available SAUCE title, author, group, and creation date below the artwork. |
 | `--info` | Print detected format, dimensions, animation frames, rendering capabilities, and SAUCE metadata as JSON. Requires exactly one input and cannot be combined with rendering or output options. |

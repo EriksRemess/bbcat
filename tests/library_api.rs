@@ -359,6 +359,35 @@ fn exposes_animation_encoders_and_explicit_asciimation() -> Result<(), Box<dyn S
             .encode_gif(bbcat::DEFAULT_ANIMATION_BAUD, 1)?
             .starts_with(b"GIF89a")
     );
+    let animation = document.animation.as_ref().unwrap();
+    for mode in 0..3 {
+        let mut output = Vec::new();
+        match mode {
+            0 => bbcat::write_kitty_animation_scaled(
+                &mut output,
+                animation,
+                bbcat::DEFAULT_ANIMATION_BAUD,
+                1,
+            )?,
+            1 => bbcat::write_kitty_animation_scaled_cropped(
+                &mut output,
+                animation,
+                bbcat::DEFAULT_ANIMATION_BAUD,
+                1,
+                1,
+            )?,
+            _ => bbcat::write_kitty_animation_scaled_fit(
+                &mut output,
+                animation,
+                bbcat::DEFAULT_ANIMATION_BAUD,
+                1,
+                1,
+            )?,
+        }
+        let output = String::from_utf8(output)?;
+        assert!(output.contains("a=f,f=100,I=1"));
+        assert!(output.ends_with("\x1b_Ga=a,I=1,s=3,v=1,c=1,q=2;\x1b\\\r\n"));
+    }
 
     let mut stream = String::from("2\n");
     for _ in 0..13 {
