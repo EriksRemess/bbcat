@@ -45,7 +45,8 @@ bbcat [OPTIONS] [FILE]...
 
 Pass one or more files or use `-` for standard input. With no filename, bbcat
 reads redirected or piped input; when run interactively, it prints its help.
-Use `--` before a filename that begins with `-`.
+Existing filenames beginning with `-` are accepted unless they match an option.
+Use `--` to force filename interpretation, for example `bbcat -- --help`.
 
 ```console
 bbcat art.ans FILE_ID.DIZ

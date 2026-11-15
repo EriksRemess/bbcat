@@ -19,6 +19,65 @@ fn run_cli(arguments: &[&str], input: &[u8]) -> std::process::Output {
 }
 
 #[test]
+fn opens_hyphenated_files_without_hiding_options() {
+    use std::{
+        fs,
+        process::{Command, Stdio},
+    };
+
+    let directory =
+        std::env::temp_dir().join(format!("bbcat-hyphenated-files-{}", std::process::id()));
+    fs::create_dir(&directory).unwrap();
+    fs::write(directory.join("-0-art.ANS"), b"FIRST_FILE_MARKER").unwrap();
+    fs::write(directory.join("--art.ANS"), b"SECOND_FILE_MARKER").unwrap();
+    fs::write(directory.join("--help"), b"HELP_FILE_MARKER").unwrap();
+    fs::write(
+        directory.join("-pack.ZIP"),
+        stored_zip("art.ANS", b"ARCHIVE_FILE_MARKER"),
+    )
+    .unwrap();
+
+    let run = |arguments: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_bbcat"))
+            .current_dir(&directory)
+            .args(arguments)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let files = run(&["-0-art.ANS", "--art.ANS"]);
+    let info = run(&["-0-art.ANS", "--info"]);
+    let help = run(&["--help"]);
+    let explicit_file = run(&["--", "--help"]);
+    let archive = run(&["-pack.ZIP"]);
+    let entry = run(&["-pack.ZIP:art.ANS"]);
+    let typo = run(&["--kity"]);
+    fs::remove_dir_all(&directory).unwrap();
+
+    for (result, markers) in [
+        (&files, &["FIRST_FILE_MARKER", "SECOND_FILE_MARKER"][..]),
+        (
+            &info,
+            &["\"file\": \"-0-art.ANS\"", "\"format\": \"ansi-text\""],
+        ),
+        (&help, &["Usage: bbcat"]),
+        (&explicit_file, &["HELP_FILE_MARKER"]),
+        (&archive, &["ARCHIVE_FILE_MARKER"]),
+        (&entry, &["ARCHIVE_FILE_MARKER"]),
+    ] {
+        assert!(result.status.success(), "{result:?}");
+        assert!(result.stderr.is_empty(), "{result:?}");
+        let output = String::from_utf8_lossy(&result.stdout);
+        for marker in markers {
+            assert!(output.contains(marker), "missing {marker}: {output}");
+        }
+    }
+    assert!(!typo.status.success());
+    assert!(typo.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&typo.stderr).contains("unknown option: --kity"));
+}
+
+#[test]
 fn rejects_ddw_display_controls_before_terminal_playback() {
     for control in [r"\u001b", r"\u0007", r"\u009b", r"\n", r"\r", r"\t"] {
         let input = format!(

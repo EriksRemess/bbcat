@@ -786,7 +786,13 @@ fn parse_args() -> Result<Option<Options>, String> {
                 break;
             }
             "-" => files.push(argument),
-            _ if argument.starts_with('-') => return Err(format!("unknown option: {argument}")),
+            _ if argument.starts_with('-')
+                && !Path::new(split_archive_spec(&argument).0).is_file() =>
+            {
+                return Err(format!(
+                    "unknown option: {argument}; if this is a filename, use -- before it"
+                ));
+            }
             _ => files.push(argument),
         }
     }
@@ -877,6 +883,9 @@ Usage: bbcat [OPTIONS] [FILE]...
 
 Arguments:
   [FILE]...                 Art files, .ZIP packs, or ARCHIVE.zip:ENTRY; use - for stdin
+
+Existing filenames beginning with - are accepted unless they match an option.
+Use -- to force filenames (for example: bbcat -- --help).
 
 Options:
   -w, --width COLS          Override text width; must match fixed binary/vector widths
